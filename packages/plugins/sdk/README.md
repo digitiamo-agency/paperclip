@@ -359,6 +359,7 @@ Declare in `manifest.capabilities`. Grouped by scope:
 | | `secrets.read-ref` |
 | | `environment.drivers.register` |
 | | `local.folders` |
+| | `network.listen.loopback` |
 | **Agent** | `agent.tools.register` |
 | | `agents.invoke` |
 | | `access.members.write` |

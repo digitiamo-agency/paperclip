@@ -859,6 +859,7 @@ The host enforces capabilities in the SDK layer and refuses calls outside the gr
 - `local.folders`
 - `http.outbound`
 - `secrets.read-ref`
+- `network.listen.loopback` (declarative: the worker serves on `127.0.0.1` only; workers are trusted code, so the host does not enforce it)
 - `environment.drivers.register`
 
 ### Agent Tools

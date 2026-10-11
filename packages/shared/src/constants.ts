@@ -1451,6 +1451,9 @@ export const PLUGIN_DATABASE_CORE_READ_TABLES = [
   "cost_events",
   "approvals",
   "issue_approvals",
+  // Declares that the worker opens a listening socket bound to loopback only.
+  // Informational: workers are plain Node processes, so the host cannot block it.
+  "network.listen.loopback",
   "budget_incidents",
 ] as const;
 export type PluginDatabaseCoreReadTable = (typeof PLUGIN_DATABASE_CORE_READ_TABLES)[number];
