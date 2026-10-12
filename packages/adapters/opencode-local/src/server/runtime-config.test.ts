@@ -309,6 +309,74 @@ describe("prepareOpenCodeRuntimeConfig", () => {
     await prepared.cleanup();
   });
 
+  it("strips OpenCode plugins and merges OPENCODE_CONFIG_CONTENT providers with model limits", async () => {
+    const configHome = await makeConfigHome({
+      plugin: ["opencode-antigravity-auth@latest"],
+      permission: { read: "allow" },
+    });
+    const content = {
+      provider: {
+        paperclip: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "Paperclip connection",
+          options: { baseURL: "https://gateway.example/v1", apiKey: "sk-test" },
+          models: {
+            "Galene/LLM": {
+              name: "Galene",
+              limit: { context: 128000, output: 16384 },
+            },
+          },
+        },
+      },
+      enabled_providers: ["paperclip"],
+    };
+    const prepared = await prepareOpenCodeRuntimeConfig({
+      env: {
+        XDG_CONFIG_HOME: configHome,
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(content),
+      },
+      config: { model: "paperclip/Galene/LLM" },
+    });
+    cleanupPaths.add(prepared.env.XDG_CONFIG_HOME);
+    const runtimeConfig = JSON.parse(
+      await fs.readFile(path.join(prepared.env.XDG_CONFIG_HOME, "opencode", "opencode.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(runtimeConfig.plugin).toBeUndefined();
+    expect(runtimeConfig.provider).toMatchObject(content.provider);
+    expect(prepared.notes).toContain(
+      "Stripped OpenCode plugin from the runtime config for headless validation.",
+    );
+    expect(
+      prepared.notes.some((note) => note.includes("OPENCODE_CONFIG_CONTENT")),
+    ).toBe(true);
+    await prepared.cleanup();
+  });
+
+  it("strips legacy plugins and permissions keys that fail OpenCode schema validation", async () => {
+    const configHome = await makeConfigHome({
+      plugin: ["opencode-supermemory@latest"],
+      plugins: ["legacy-plugin"],
+      permissions: ["read"],
+      permission: { read: "allow" },
+    });
+    const prepared = await prepareOpenCodeRuntimeConfig({
+      env: { XDG_CONFIG_HOME: configHome },
+      config: { model: "paperclip/Galene/LLM" },
+    });
+    cleanupPaths.add(prepared.env.XDG_CONFIG_HOME);
+    const runtimeConfig = JSON.parse(
+      await fs.readFile(path.join(prepared.env.XDG_CONFIG_HOME, "opencode", "opencode.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(runtimeConfig.plugin).toBeUndefined();
+    expect(runtimeConfig.plugins).toBeUndefined();
+    expect(runtimeConfig.permissions).toBeUndefined();
+    expect(runtimeConfig.permission).toBe("allow");
+    expect(prepared.notes).toContain(
+      "Stripped OpenCode plugin, plugins, permissions from the runtime config for headless validation.",
+    );
+    await prepared.cleanup();
+  });
+
   it("respects explicit opt-out", async () => {
     const configHome = await makeConfigHome();
     const prepared = await prepareOpenCodeRuntimeConfig({

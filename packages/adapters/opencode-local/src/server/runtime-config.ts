@@ -92,6 +92,32 @@ function parseConfiguredModelRef(raw: unknown): { provider: string; model: strin
   return { provider: trimmed.slice(0, slash), model: trimmed.slice(slash + 1) };
 }
 
+/** Extract the `provider` map from OpenCode's OPENCODE_CONFIG_CONTENT JSON blob. */
+function parseOpenCodeConfigContentProviders(
+  raw: unknown,
+  notes: string[],
+): Record<string, unknown> | null {
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    notes.push("OPENCODE_CONFIG_CONTENT contains invalid JSON; ignored for runtime merge.");
+    return null;
+  }
+  if (!isPlainObject(parsed)) {
+    notes.push("OPENCODE_CONFIG_CONTENT is set but is not a JSON object; ignored for runtime merge.");
+    return null;
+  }
+  const providers = parsed.provider;
+  if (!isPlainObject(providers)) return null;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(providers)) {
+    if (isPlainObject(value)) out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 async function readJsonObject(filepath: string): Promise<Record<string, unknown>> {
   try {
     const raw = await fs.readFile(filepath, "utf8");
@@ -153,6 +179,32 @@ export async function prepareOpenCodeRuntimeConfig(input: {
     "Injected runtime OpenCode config with permission=allow for all tools and connections.",
   ];
 
+  // Headless Paperclip runs copy the operator's ~/.config/opencode into a temp
+  // XDG home. Interactive plugins (auth helpers, cloud sync) and legacy keys
+  // (`plugins`, plural `permissions`) often make that copy fail OpenCode's
+  // config schema validation (`opencode models` then reports "Configuration is
+  // invalid"). Drop those from the runtime copy; managed providers come from
+  // PAPERCLIP_OPENCODE_PROVIDERS / OPENCODE_CONFIG_CONTENT. We then set the
+  // singular `permission: "allow"` below for headless tool access.
+  const strippedLegacyKeys: string[] = [];
+  if (Array.isArray(existingConfig.plugin) && existingConfig.plugin.length > 0) {
+    delete existingConfig.plugin;
+    strippedLegacyKeys.push("plugin");
+  }
+  if (Object.prototype.hasOwnProperty.call(existingConfig, "plugins")) {
+    delete existingConfig.plugins;
+    strippedLegacyKeys.push("plugins");
+  }
+  if (Object.prototype.hasOwnProperty.call(existingConfig, "permissions")) {
+    delete existingConfig.permissions;
+    strippedLegacyKeys.push("permissions");
+  }
+  if (strippedLegacyKeys.length > 0) {
+    notes.push(
+      `Stripped OpenCode ${strippedLegacyKeys.join(", ")} from the runtime config for headless validation.`,
+    );
+  }
+
   // Merge gateway/custom provider definitions supplied via PAPERCLIP_OPENCODE_PROVIDERS
   // (a JSON object in OpenCode's `provider` shape). OpenCode resolves a `--model
   // provider/model` only when that model exists in a provider's `models` map, and
@@ -166,13 +218,28 @@ export async function prepareOpenCodeRuntimeConfig(input: {
     resolveEnv,
     notes,
   );
+  // Managed AI connections project a full provider block via OPENCODE_CONFIG_CONTENT
+  // (npm package, baseURL, apiKey, models with optional limit.context/output). Merge
+  // it into the runtime file so `opencode models` and runs share the same definition
+  // even when XDG_CONFIG_HOME points at this temp copy.
+  const configContentProviders = parseOpenCodeConfigContentProviders(
+    input.env.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT,
+    notes,
+  );
   const existingProvider = isPlainObject(existingConfig.provider) ? existingConfig.provider : {};
-  let nextProvider = gatewayProviders
-    ? { ...existingProvider, ...gatewayProviders }
-    : existingProvider;
+  let nextProvider = {
+    ...existingProvider,
+    ...(gatewayProviders ?? {}),
+    ...(configContentProviders ?? {}),
+  };
   if (gatewayProviders) {
     notes.push(
       `Injected ${Object.keys(gatewayProviders).length} custom OpenCode provider(s) from PAPERCLIP_OPENCODE_PROVIDERS: ${Object.keys(gatewayProviders).join(", ")}.`,
+    );
+  }
+  if (configContentProviders) {
+    notes.push(
+      `Merged ${Object.keys(configContentProviders).length} OpenCode provider(s) from OPENCODE_CONFIG_CONTENT: ${Object.keys(configContentProviders).join(", ")}.`,
     );
   }
 
@@ -183,7 +250,7 @@ export async function prepareOpenCodeRuntimeConfig(input: {
   // otherwise rejected with "Model not found" even though the provider serves them.
   // An empty entry deep-merges with catalog metadata, so this is a no-op for models
   // the catalog already knows, and we never clobber an explicit definition from the
-  // user config or PAPERCLIP_OPENCODE_PROVIDERS.
+  // user config, PAPERCLIP_OPENCODE_PROVIDERS, or OPENCODE_CONFIG_CONTENT.
   const configuredModel = parseConfiguredModelRef(input.config.model);
   if (configuredModel) {
     const providerEntry = isPlainObject(nextProvider[configuredModel.provider])
