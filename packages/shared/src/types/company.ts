@@ -1,4 +1,5 @@
 import type {
+  CompanyDialogueLanguage,
   CompanyStatus,
   IssueThreadInteractionKind,
   IssueThreadInteractionResolverPolicy,
@@ -18,6 +19,8 @@ export interface Company {
   id: string;
   name: string;
   description: string | null;
+  /** Language for agent↔user dialogue. A2A / agent coordination stays English. */
+  dialogueLanguage: CompanyDialogueLanguage;
   status: CompanyStatus;
   pauseReason: PauseReason | null;
   pausedAt: Date | null;

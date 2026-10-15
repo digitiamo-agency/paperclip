@@ -1,6 +1,47 @@
 export const COMPANY_STATUSES = ["active", "paused", "archived"] as const;
 export type CompanyStatus = (typeof COMPANY_STATUSES)[number];
 
+/** Languages agents use when speaking with the board / end users. A2A stays English. */
+export const COMPANY_DIALOGUE_LANGUAGES = [
+  "en",
+  "it",
+  "de",
+  "fr",
+  "es",
+  "pt-BR",
+  "pt-PT",
+  "nl",
+  "pl",
+  "ja",
+  "zh-CN",
+  "zh-TW",
+  "ko",
+  "ar",
+  "hi",
+  "ru",
+] as const;
+export type CompanyDialogueLanguage = (typeof COMPANY_DIALOGUE_LANGUAGES)[number];
+export const DEFAULT_COMPANY_DIALOGUE_LANGUAGE: CompanyDialogueLanguage = "en";
+
+export const COMPANY_DIALOGUE_LANGUAGE_LABELS: Record<CompanyDialogueLanguage, string> = {
+  en: "English",
+  it: "Italiano",
+  de: "Deutsch",
+  fr: "Français",
+  es: "Español",
+  "pt-BR": "Português (Brasil)",
+  "pt-PT": "Português (Portugal)",
+  nl: "Nederlands",
+  pl: "Polski",
+  ja: "日本語",
+  "zh-CN": "中文（简体）",
+  "zh-TW": "中文（繁體）",
+  ko: "한국어",
+  ar: "العربية",
+  hi: "हिन्दी",
+  ru: "Русский",
+};
+
 export const DEPLOYMENT_MODES = ["local_trusted", "authenticated"] as const;
 export type DeploymentMode = (typeof DEPLOYMENT_MODES)[number];
 
@@ -750,6 +791,7 @@ export type SecretVersionStatus = (typeof SECRET_VERSION_STATUSES)[number];
 export const SECRET_BINDING_TARGET_TYPES = [
   "agent",
   "project",
+  "project_workspace",
   "environment",
   "routine",
   "plugin",
@@ -1410,6 +1452,9 @@ export const PLUGIN_CAPABILITIES = [
   "secrets.read-ref",
   "environment.drivers.register",
   "local.folders",
+  // Declares that the worker opens a listening socket bound to loopback only.
+  // Informational: workers are plain Node processes, so the host cannot block it.
+  "network.listen.loopback",
   // Agent Tools
   "agent.tools.register",
   // UI
@@ -1451,9 +1496,6 @@ export const PLUGIN_DATABASE_CORE_READ_TABLES = [
   "cost_events",
   "approvals",
   "issue_approvals",
-  // Declares that the worker opens a listening socket bound to loopback only.
-  // Informational: workers are plain Node processes, so the host cannot block it.
-  "network.listen.loopback",
   "budget_incidents",
 ] as const;
 export type PluginDatabaseCoreReadTable = (typeof PLUGIN_DATABASE_CORE_READ_TABLES)[number];

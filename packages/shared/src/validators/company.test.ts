@@ -17,6 +17,24 @@ describe("company schemas without the retired settings", () => {
     expect(parsed).not.toHaveProperty("brandColor");
     expect(parsed).not.toHaveProperty("attachmentMaxBytes");
     expect(parsed.name).toBe("Acme");
+    expect(parsed.dialogueLanguage).toBe("en");
+  });
+
+  it("accepts a dialogue language on create", () => {
+    const parsed = createCompanySchema.parse({
+      name: "Acme",
+      dialogueLanguage: "it",
+    });
+    expect(parsed.dialogueLanguage).toBe("it");
+  });
+
+  it("rejects an unsupported dialogue language", () => {
+    expect(
+      createCompanySchema.safeParse({
+        name: "Acme",
+        dialogueLanguage: "xx",
+      }).success,
+    ).toBe(false);
   });
 
   it("strips brandColor and attachmentMaxBytes from an update payload", () => {

@@ -7,6 +7,8 @@ export const companies = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     description: text("description"),
+    /** BCP-47 tag for agent↔user dialogue. Agent-to-agent communication stays English. */
+    dialogueLanguage: text("dialogue_language").notNull().default("en"),
     status: text("status").notNull().default("active"),
     pauseReason: text("pause_reason"),
     pausedAt: timestamp("paused_at", { withTimezone: true }),

@@ -1,0 +1,1 @@
+ALTER TABLE "companies" ADD COLUMN "dialogue_language" text DEFAULT 'en' NOT NULL;

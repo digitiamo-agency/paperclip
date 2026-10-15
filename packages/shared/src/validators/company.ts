@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
+  COMPANY_DIALOGUE_LANGUAGES,
   COMPANY_STATUSES,
+  DEFAULT_COMPANY_DIALOGUE_LANGUAGE,
   ISSUE_THREAD_INTERACTION_RESOLVER_POLICIES,
 } from "../constants.js";
 import { objectWithoutDefaults } from "./partial.js";
@@ -24,6 +26,10 @@ export const interactionResolverGovernanceSchema = z.object({
 export const createCompanySchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
+  dialogueLanguage: z
+    .enum(COMPANY_DIALOGUE_LANGUAGES)
+    .optional()
+    .default(DEFAULT_COMPANY_DIALOGUE_LANGUAGE),
   budgetMonthlyCents: z.number().int().nonnegative().optional().default(0),
   defaultResponsibleUserId: z.string().min(1).nullable().optional(),
 });

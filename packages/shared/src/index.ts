@@ -1,4 +1,11 @@
 export * from "./slack-app-manifest.js";
+export {
+  appendCompanyDialogueLanguagePolicy,
+  buildCompanyDialogueLanguagePolicy,
+  companyDialogueLanguageLabel,
+  isCompanyDialogueLanguage,
+  normalizeCompanyDialogueLanguage,
+} from "./company-dialogue-language.js";
 export { composioAppSetupSchema, composioAppsRefreshSchema, composioAppsSyncSchema, composioAppAccountSchema, type ComposioAppSetupInput, type ComposioAppSetupResult, type ComposioAppAccountInput, type ComposioAppAccount, type ComposioAppSnapshot, type ComposioAppSyncState, type ComposioAppsResponse } from "./composio-app-setup.js";
 export { agentAdapterTypeSchema, optionalAgentAdapterTypeSchema } from "./adapter-type.js";
 export {
@@ -390,6 +397,9 @@ export {
 } from "./oauth-endpoint-url.js";
 export {
   COMPANY_STATUSES,
+  COMPANY_DIALOGUE_LANGUAGES,
+  COMPANY_DIALOGUE_LANGUAGE_LABELS,
+  DEFAULT_COMPANY_DIALOGUE_LANGUAGE,
   DEPLOYMENT_MODES,
   DEPLOYMENT_EXPOSURES,
   BIND_MODES,
@@ -692,6 +702,7 @@ export {
   type FinanceUnit,
   type BudgetScopeType,
   type BudgetMetric,
+  type CompanyDialogueLanguage,
   type BudgetWindowKind,
   type BudgetThresholdType,
   type BudgetIncidentStatus,
