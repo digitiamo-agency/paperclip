@@ -534,8 +534,20 @@ function OnboardingWizardInner({
           companies,
           cloudManaged: Boolean(cloudInstance),
         });
+  // The wizard mounts globally (outside CloudAccessGate). While authenticated
+  // bootstrap is still pending, keep it closed so operators follow first-admin
+  // claim/invite instead of hitting "Board access required" on company create.
+  const bootstrapHealth = useQuery({
+    queryKey: queryKeys.health,
+    queryFn: healthApi.get,
+    staleTime: 2_000,
+  });
+  const bootstrapBlocksOnboarding =
+    bootstrapHealth.data?.deploymentMode === "authenticated" &&
+    bootstrapHealth.data?.bootstrapStatus === "bootstrap_pending";
   const effectiveOnboardingOpen =
-    onboardingOpen || (routeOnboardingOptions !== null && !routeDismissed);
+    !bootstrapBlocksOnboarding &&
+    (onboardingOpen || (routeOnboardingOptions !== null && !routeDismissed));
   const effectiveOnboardingOptions = onboardingOpen
     ? onboardingOptions
     : routeOnboardingOptions ?? {};

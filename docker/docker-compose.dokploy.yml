@@ -33,7 +33,9 @@ services:
       PORT: "3100"
       SERVE_UI: "true"
       PAPERCLIP_DEPLOYMENT_MODE: authenticated
-      PAPERCLIP_DEPLOYMENT_EXPOSURE: public
+      # private = allow first-admin browser claim/sign-up. Traefik still
+      # publishes agents.digitiamo.agency; this only unlocks bootstrap UX.
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: ${PAPERCLIP_DEPLOYMENT_EXPOSURE:-private}
       PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://agents.digitiamo.agency}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
       PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:-}
