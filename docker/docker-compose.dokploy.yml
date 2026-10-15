@@ -1,0 +1,53 @@
+# Compose for Dokploy (agents.digitiamo.agency).
+# Build context is the repo root; Traefik labels are injected by Dokploy domains.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paperclip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: paperclip
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperclip -d paperclip"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    pids_limit: 2048
+    expose:
+      - "3100"
+    environment:
+      HOST: 0.0.0.0
+      PAPERCLIP_HOME: /paperclip
+      DATABASE_URL: postgres://paperclip:${POSTGRES_PASSWORD}@db:5432/paperclip
+      PORT: "3100"
+      SERVE_UI: "true"
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: public
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://agents.digitiamo.agency}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET}
+      TRUST_PROXY: "1"
+      ELETTRA_API_KEY: ${ELETTRA_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENCODE_ALLOW_ALL_MODELS: ${OPENCODE_ALLOW_ALL_MODELS:-true}
+      PAPERCLIP_OPENCODE_SMALL_MODEL: ${PAPERCLIP_OPENCODE_SMALL_MODEL:-elettra/llm}
+      PAPERCLIP_OPENCODE_PROVIDERS: ${PAPERCLIP_OPENCODE_PROVIDERS}
+    volumes:
+      - paperclip-data:/paperclip
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  paperclip-data:
