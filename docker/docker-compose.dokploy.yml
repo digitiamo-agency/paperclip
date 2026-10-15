@@ -39,6 +39,10 @@ services:
       PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://agents.digitiamo.agency}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
       PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:-}
+      # Agents run inside this container (not on the Dokploy host home dir).
+      # Keep Digitiamo containment off here so opencode_local/CEO can execute;
+      # enable only when agents spawn on a bare host with Bubblewrap/sandbox.
+      PAPERCLIP_REQUIRE_HOST_WORKSPACE_FILESYSTEM_SCOPE: ${PAPERCLIP_REQUIRE_HOST_WORKSPACE_FILESYSTEM_SCOPE:-false}
       TRUST_PROXY: "1"
       ELETTRA_API_KEY: ${ELETTRA_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
