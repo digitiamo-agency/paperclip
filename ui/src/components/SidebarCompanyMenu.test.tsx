@@ -242,6 +242,34 @@ describe("SidebarCompanyMenu", () => {
 
     expect(document.body.textContent).toContain("No organizations");
     expect(document.body.textContent).not.toContain("Couldn't load organizations");
+    expect(document.body.textContent).toContain("Manage organizations");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("points at the organizations list when only archived companies remain", async () => {
+    mockCompanyState.companies = [
+      {
+        id: "company-archived",
+        issuePrefix: "OLD",
+        name: "Old Co",
+        status: "archived",
+      },
+    ];
+    mockCompanyState.companyListUnavailable = false;
+
+    const { root } = renderMenu();
+    await flushReact();
+    await openMenu("Open Acme Labs organization switcher");
+
+    expect(document.body.textContent).toContain("No active organizations");
+    expect(document.body.textContent).not.toContain("No organizations");
+    expect(document.body.textContent).toContain("Manage organizations");
+    expect(
+      Array.from(document.body.querySelectorAll("a")).some((link) => link.getAttribute("href") === "/companies"),
+    ).toBe(true);
 
     act(() => {
       root.unmount();
@@ -324,6 +352,10 @@ describe("SidebarCompanyMenu", () => {
     expect(document.body.textContent).toContain("Strata");
     expect(document.body.textContent).toContain("ANA");
     expect(document.body.textContent).toContain("Create organization");
+    expect(document.body.textContent).toContain("Manage organizations");
+    expect(
+      Array.from(document.body.querySelectorAll("a")).some((link) => link.getAttribute("href") === "/companies"),
+    ).toBe(true);
     expect(document.body.textContent).toContain("Invite people to Acme Labs");
     expect(document.body.textContent).not.toContain("Company settings");
     expect(document.body.textContent).toContain("Sign out");

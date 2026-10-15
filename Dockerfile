@@ -51,7 +51,13 @@ COPY scripts/link-plugin-dev-sdk.mjs scripts/
 
 # CI owns repository lock updates. Resolve manifest changes in the image's
 # private build tree, then install from that exact generated lock.
-RUN pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile && pnpm install --frozen-lockfile
+# Skip Puppeteer browser downloads during image build (saves RAM/disk under buildx).
+# Cap postinstall parallelism via .npmrc (pnpm 9 rejects --config.child-concurrency=1).
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+RUN printf '\nchild-concurrency=1\n' >> .npmrc \
+  && pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile \
+  && pnpm install --frozen-lockfile
 
 FROM base AS rust-toolchain
 WORKDIR /app
@@ -141,7 +147,9 @@ RUN pnpm --filter @paperclipai/plugin-sdk build
 # next RUN as an environment variable. The production stage below declares the
 # same ARG again for the runtime fallback; an ARG goes out of scope at the
 # end of its stage. Empty for local `docker build`, which then writes no stamp.
-ENV NODE_OPTIONS=--max-old-space-size=4096
+# 4096 OOM's easily under Docker Desktop / buildx container; override via build-arg if needed.
+ARG NODE_MAX_OLD_SPACE_SIZE=3072
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}
 RUN pnpm --filter @paperclipai/server build
 RUN test -f server/dist/index.js || (echo "ERROR: server build output missing" && exit 1)
 RUN rm -rf packages/paperclip-runner/runner/target

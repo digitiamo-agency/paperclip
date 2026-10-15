@@ -45,6 +45,10 @@ vi.mock("../context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: vi.fn() }),
 }));
 
+vi.mock("../context/ToastContext", () => ({
+  useToastActions: () => ({ pushToast: vi.fn() }),
+}));
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -118,6 +122,56 @@ describe("Companies page", () => {
     expect(container.textContent).not.toContain("New Organization");
     expect(container.textContent).toContain("Acme Labs");
     expect(mockOpenOnboarding).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("confirms permanent deletion in a modal before removing an organization", async () => {
+    mockCompaniesApi.remove.mockResolvedValue({ id: "company-1" });
+    const root = await renderPage();
+
+    const menuTrigger = container.querySelector(
+      'button[data-slot="dropdown-menu-trigger"]',
+    );
+    expect(menuTrigger).not.toBeNull();
+    act(() => {
+      menuTrigger?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      menuTrigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const deleteItem = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
+      (item) => item.textContent?.includes("Delete Organization"),
+    );
+    expect(deleteItem).toBeDefined();
+    act(() => {
+      deleteItem?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      deleteItem?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Delete organization?");
+    expect(document.body.textContent).toContain('"Acme Labs"');
+    expect(document.body.textContent).toContain(
+      "all agents, tasks, logs, and memberships",
+    );
+    expect(document.body.textContent).toContain("permanently removed");
+    expect(document.body.textContent).toContain("This cannot be undone");
+    expect(mockCompaniesApi.remove).not.toHaveBeenCalled();
+
+    const confirm = Array.from(
+      document.querySelectorAll('[data-slot="alert-dialog-action"]'),
+    ).find((element) => element.textContent?.includes("Delete organization"));
+    expect(confirm).toBeDefined();
+    act(() => {
+      confirm!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(mockCompaniesApi.remove).toHaveBeenCalledWith("company-1");
 
     act(() => {
       root.unmount();

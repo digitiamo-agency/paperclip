@@ -16,6 +16,7 @@ import { useToastActions } from "../context/ToastContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { ProjectProperties, type ProjectConfigFieldKey, type ProjectFieldSaveState } from "../components/ProjectProperties";
+import { ProjectRepositories } from "../components/ProjectRepositories";
 import { InlineEditor } from "../components/InlineEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { ProjectTile } from "../components/ProjectTile";
@@ -48,7 +49,7 @@ import {
 
 /* ── Top-level tab types ── */
 
-type ProjectBaseTab = "list" | "plugin-operations" | "workspaces" | "configuration" | "budget";
+type ProjectBaseTab = "list" | "plugin-operations" | "workspaces" | "configuration" | "repos" | "budget";
 type ProjectPluginTab = `plugin:${string}`;
 type ProjectTab = ProjectBaseTab | ProjectPluginTab;
 
@@ -63,6 +64,7 @@ function resolveProjectTab(pathname: string, projectId: string): ProjectTab | nu
   const tab = segments[projectsIdx + 2];
   if (tab === "overview") return "configuration";
   if (tab === "configuration") return "configuration";
+  if (tab === "repos") return "repos";
   if (tab === "budget") return "budget";
   if (tab === "issues") return "list";
   if (tab === "plugin-operations") return "plugin-operations";
@@ -480,6 +482,30 @@ export function ProjectDetail() {
     },
   });
 
+  const deleteProject = useMutation({
+    mutationFn: () =>
+      projectsApi.remove(projectLookupRef, resolvedCompanyId ?? lookupCompanyId),
+    onSuccess: (deleted) => {
+      if (resolvedCompanyId ?? lookupCompanyId) {
+        const companyId = resolvedCompanyId ?? lookupCompanyId!;
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects.all(companyId) });
+      }
+      const name = deleted?.name ?? project?.name ?? "Project";
+      pushToast({
+        title: `"${name}" has been deleted`,
+        tone: "success",
+      });
+      navigate("/projects");
+    },
+    onError: (err: unknown) => {
+      pushToast({
+        title: "Failed to delete project",
+        body: err instanceof Error ? err.message : "Deletion failed.",
+        tone: "error",
+      });
+    },
+  });
+
   const uploadImage = useMutation({
     mutationFn: async (file: File) => {
       if (!resolvedCompanyId) throw new Error("No organization selected");
@@ -511,6 +537,10 @@ export function ProjectDetail() {
     }
     if (activeTab === "configuration") {
       navigate(`/projects/${canonicalProjectRef}/configuration`, { replace: true });
+      return;
+    }
+    if (activeTab === "repos") {
+      navigate(`/projects/${canonicalProjectRef}/repos`, { replace: true });
       return;
     }
     if (activeTab === "budget") {
@@ -667,6 +697,9 @@ export function ProjectDetail() {
     if (cachedTab === "configuration") {
       return <Navigate to={`/projects/${canonicalProjectRef}/configuration`} replace />;
     }
+    if (cachedTab === "repos") {
+      return <Navigate to={`/projects/${canonicalProjectRef}/repos`} replace />;
+    }
     if (cachedTab === "budget") {
       return <Navigate to={`/projects/${canonicalProjectRef}/budget`} replace />;
     }
@@ -709,6 +742,8 @@ export function ProjectDetail() {
     }
     if (tab === "workspaces") {
       navigate(`/projects/${canonicalProjectRef}/workspaces`);
+    } else if (tab === "repos") {
+      navigate(`/projects/${canonicalProjectRef}/repos`);
     } else if (tab === "budget") {
       navigate(`/projects/${canonicalProjectRef}/budget`);
     } else if (tab === "plugin-operations") {
@@ -848,6 +883,7 @@ export function ProjectDetail() {
             ...(project.managedByPlugin ? [{ value: "plugin-operations", label: "Plugin operations" }] : []),
             ...(showWorkspacesTab ? [{ value: "workspaces", label: "Workspaces" }] : []),
             { value: "configuration", label: "Configuration" },
+            { value: "repos", label: "Source repos" },
             { value: "budget", label: "Budget" },
             ...pluginTabItems.map((item) => ({
               value: item.value,
@@ -900,7 +936,15 @@ export function ProjectDetail() {
             getFieldSaveState={(field) => fieldSaveStates[field] ?? "idle"}
             onArchive={(archived) => archiveProject.mutate(archived)}
             archivePending={archiveProject.isPending}
+            onDelete={() => deleteProject.mutate()}
+            deletePending={deleteProject.isPending}
           />
+        </div>
+      )}
+
+      {activeTab === "repos" && (
+        <div className="max-w-4xl">
+          <ProjectRepositories key={project.id} project={project} />
         </div>
       )}
 

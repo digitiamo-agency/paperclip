@@ -23,7 +23,7 @@ function RepoRow({ repo, onRemove }: { repo: ProjectRepository; onRemove: () => 
 }
 
 /** Shared by both review surfaces, ready to extract after design approval. */
-export function RepositoryEditor({ selected, onChange, state = "ready", available = [], onRetry, onConnect, disabled = false }: {
+export function RepositoryEditor({ selected, onChange, state = "ready", available = [], onRetry, onConnect, onAddByUrl, disabled = false }: {
   selected: ProjectRepository[];
   onChange: (repos: ProjectRepository[]) => void;
   state?: "ready" | "loading" | "disconnected" | "empty" | "error";
@@ -31,6 +31,8 @@ export function RepositoryEditor({ selected, onChange, state = "ready", availabl
   onRetry: () => void;
   disabled?: boolean;
   onConnect: () => void;
+  /** Opens the modal for adding an arbitrary HTTP(S)/SSH git remote. */
+  onAddByUrl?: () => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
@@ -48,16 +50,23 @@ export function RepositoryEditor({ selected, onChange, state = "ready", availabl
       <div className="flex items-baseline gap-2"><span className="text-sm font-medium">Source repos</span><span className="text-xs text-muted-foreground">optional</span></div>
       {selected.map((repo) => <RepoRow key={repo.id} repo={repo} onRemove={() => onChange(selected.filter((item) => item.id !== repo.id))} />)}
       {state === "disconnected" ? (
-        <Popover>
-          <PopoverTrigger asChild><Button type="button" variant="outline" className={addClassName}><GithubIcon className="size-4" />{addLabel}</Button></PopoverTrigger>
-          <PopoverContent align="start" className="w-72">
-            <div className="flex flex-col gap-3">
-              <GithubIcon className="size-5" />
-              <div className="flex flex-col gap-1"><p className="text-sm font-medium">Connect GitHub to pick a repo</p><p className="text-xs text-muted-foreground">Choose from repos you can access through your GitHub connections.</p></div>
-              <Button type="button" onClick={onConnect}><GithubIcon className="size-4" />Connect GitHub</Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+        <div className={selected.length ? "flex flex-wrap items-center gap-2" : "flex flex-col gap-2"}>
+          <Popover>
+            <PopoverTrigger asChild><Button type="button" variant="outline" className={addClassName}><GithubIcon className="size-4" />{addLabel}</Button></PopoverTrigger>
+            <PopoverContent align="start" className="w-72">
+              <div className="flex flex-col gap-3">
+                <GithubIcon className="size-5" />
+                <div className="flex flex-col gap-1"><p className="text-sm font-medium">Connect GitHub to pick a repo</p><p className="text-xs text-muted-foreground">Choose from repos you can access through your GitHub connections.</p></div>
+                <Button type="button" onClick={onConnect}><GithubIcon className="size-4" />Connect GitHub</Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+          {onAddByUrl && (
+            <Button type="button" variant="outline" className={selected.length ? "self-start" : "w-full"} onClick={onAddByUrl}>
+              <GitBranch className="size-4" />Add by URL
+            </Button>
+          )}
+        </div>
       ) : showPicker ? (
         <div ref={picker} className="flex flex-col gap-2">
           <SearchableSelect<string, (typeof options)[number]>
@@ -78,7 +87,18 @@ export function RepositoryEditor({ selected, onChange, state = "ready", availabl
             <Button type="button" variant="ghost" size="sm" onClick={() => setShowPicker(false)}>Cancel</Button>
           </div>
         </div>
-      ) : <Button type="button" variant="outline" className={addClassName} onClick={() => setShowPicker(true)}><GithubIcon className="size-4" />{addLabel}</Button>}
+      ) : (
+        <div className={selected.length ? "flex flex-wrap items-center gap-2" : "flex flex-col gap-2"}>
+          <Button type="button" variant="outline" className={addClassName} onClick={() => setShowPicker(true)}>
+            <GithubIcon className="size-4" />{addLabel}
+          </Button>
+          {onAddByUrl && (
+            <Button type="button" variant="outline" className={selected.length ? "self-start" : "w-full"} onClick={onAddByUrl}>
+              <GitBranch className="size-4" />Add by URL
+            </Button>
+          )}
+        </div>
+      )}
     </fieldset>
   );
 }

@@ -11,6 +11,7 @@ import { Projects } from "./Projects";
 
 const mockProjectsApi = vi.hoisted(() => ({
   list: vi.fn(),
+  remove: vi.fn(),
 }));
 
 const mockResourceMembershipsApi = vi.hoisted(() => ({
@@ -240,5 +241,42 @@ describe("Projects", () => {
 
     expect(hiddenDescriptionLine).not.toBeNull();
     expect(hiddenDescriptionLine?.className).toContain("min-h-4");
+  });
+
+  it("deletes a project after confirmation", async () => {
+    mockProjectsApi.remove.mockResolvedValue(makeProject({ id: "project-a", name: "Alpha" }));
+    await renderProjects();
+
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Alpha"]',
+    );
+    expect(menuTrigger).not.toBeNull();
+
+    await act(async () => {
+      menuTrigger?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      menuTrigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const deleteItem = Array.from(document.body.querySelectorAll("[role='menuitem']"))
+      .find((element) => element.textContent?.includes("Delete project"));
+    expect(deleteItem).toBeTruthy();
+
+    await act(async () => {
+      deleteItem?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const confirm = Array.from(document.body.querySelectorAll("button"))
+      .find((element) => element.textContent === "Delete project");
+    expect(confirm).toBeTruthy();
+
+    await act(async () => {
+      confirm?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(mockProjectsApi.remove).toHaveBeenCalledWith("project-a", "company-1");
   });
 });

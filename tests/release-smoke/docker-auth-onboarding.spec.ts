@@ -243,26 +243,20 @@ test.describe("Docker authenticated onboarding smoke", () => {
       true
     );
 
-    // #13068 rebuilt the seeded first task as a chat with the lead: launch
-    // posts a deterministic, server-owned greeting plus an opening question
-    // card, and deliberately does not wake the assignee — "no run until the
-    // user answers". Assert the chat actually opened (the greeting and the
-    // card are seeded without an LLM, so their absence means the launch
-    // half-finished) …
+    // Launch posts a deterministic, server-owned greeting and deliberately
+    // does not wake the assignee — "no run until the user types". Assert the
+    // chat actually opened (the greeting is seeded without an LLM, so its
+    // absence means the launch half-finished) …
     await expect(
       page.getByText("Welcome to Paperclip!").first()
     ).toBeVisible({ timeout: 20_000 });
-    // The timeline also summarizes the unanswered question. Check the open
-    // question card so a summary alone cannot satisfy this assertion.
     await expect(
-      page
-        .getByTestId("task-chat-interaction")
-        .getByText("What would you like to do?", { exact: true })
-    ).toBeVisible();
+      page.getByText("What would you like to do?", { exact: true })
+    ).toHaveCount(0);
 
     // … and that the no-run contract holds. This spec used to poll for an
     // assignment-triggered heartbeat run here; a run appearing before the
-    // user's first answer is now the regression, not the success. Wake
+    // user's first message is now the regression, not the success. Wake
     // dispatch is asynchronous, so watch the endpoint over a bounded window
     // rather than sampling it once — a launch-time wake that slips through
     // lands well within this window.

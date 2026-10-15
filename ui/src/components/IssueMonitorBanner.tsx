@@ -61,6 +61,8 @@ export interface MonitorSurfaceCopy {
   stripMeta: string[];
   /** `warning` (amber) once overdue, `info` (blue) while still on schedule. */
   tone: "info" | "warning";
+  /** Which early-wake API the Check/Retry button must call. */
+  actionKind: "monitor" | "scheduled-retry";
   workspaceWait?: boolean;
   pullRequestReview?: boolean;
 }
@@ -89,6 +91,7 @@ export function buildMonitorSurfaceCopy(
       bannerMeta: ["Another task is using this workspace. Work starts automatically when it is available."],
       stripMeta: ["Work starts automatically when the workspace is available."],
       tone: "info",
+      actionKind: "scheduled-retry",
       workspaceWait: true,
     };
   }
@@ -102,6 +105,7 @@ export function buildMonitorSurfaceCopy(
       bannerMeta: [`Next check ${eta} · ${absolute} (your time)`],
       stripMeta: [`Next check ${eta} · ${absolute}`],
       tone: derived.state === "overdue" ? "warning" : "info",
+      actionKind: "monitor",
       pullRequestReview: true,
     };
   }
@@ -112,6 +116,7 @@ export function buildMonitorSurfaceCopy(
       bannerMeta: [`Usage recheck ${eta} · ${absolute} (your time)`, "Tasks with a selected account keep it while waiting. Work resumes when usage permits."],
       stripMeta: [`Usage recheck ${eta} · ${absolute}`, "Tasks with a selected account keep it while waiting."],
       tone: "info",
+      actionKind: "scheduled-retry",
     };
   }
 
@@ -155,6 +160,7 @@ export function buildMonitorSurfaceCopy(
     bannerMeta,
     stripMeta,
     tone: derived.state === "overdue" ? "warning" : "info",
+    actionKind: isScheduledRetryOnly ? "scheduled-retry" : "monitor",
   };
 }
 
@@ -171,11 +177,16 @@ function CheckNowButton({
   onCheckNow,
   checkingNow,
   reviewRequested = false,
+  actionKind = "monitor",
 }: {
   onCheckNow: () => void;
   checkingNow: boolean;
   reviewRequested?: boolean;
+  actionKind?: "monitor" | "scheduled-retry";
 }) {
+  const idleLabel =
+    reviewRequested ? "Check status" : actionKind === "scheduled-retry" ? "Retry now" : "Check now";
+  const pendingLabel = actionKind === "scheduled-retry" ? "Retrying…" : "Checking…";
   return (
     <Button
       type="button"
@@ -185,7 +196,7 @@ function CheckNowButton({
       onClick={onCheckNow}
       disabled={checkingNow}
     >
-      {checkingNow ? "Checking…" : reviewRequested ? "Check status" : "Check now"}
+      {checkingNow ? pendingLabel : idleLabel}
     </Button>
   );
 }
@@ -262,7 +273,7 @@ export function IssueMonitorBanner({
       icon={Clock}
       title={copy.bannerTitle}
       className={cn("relative my-3", canCancel && "pr-12")}
-      actions={onCheckNow && !copy.workspaceWait ? <CheckNowButton onCheckNow={onCheckNow} checkingNow={checkingNow} reviewRequested={copy.pullRequestReview} /> : null}
+      actions={onCheckNow && !copy.workspaceWait ? <CheckNowButton onCheckNow={onCheckNow} checkingNow={checkingNow} reviewRequested={copy.pullRequestReview} actionKind={copy.actionKind} /> : null}
     >
       {canCancel ? <CancelMonitorButton key={issue.id} onCancel={onCancelMonitor} /> : null}
       <div className="flex flex-col gap-2">
@@ -306,7 +317,7 @@ export function IssueMonitorComposerStrip({
             <div className="text-xs text-muted-foreground">{copy.stripMeta.join(" · ")}</div>
           </div>
         </div>
-        {onCheckNow && !copy.workspaceWait ? <CheckNowButton onCheckNow={onCheckNow} checkingNow={checkingNow} reviewRequested={copy.pullRequestReview} /> : null}
+        {onCheckNow && !copy.workspaceWait ? <CheckNowButton onCheckNow={onCheckNow} checkingNow={checkingNow} reviewRequested={copy.pullRequestReview} actionKind={copy.actionKind} /> : null}
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">
         {copy.pullRequestReview

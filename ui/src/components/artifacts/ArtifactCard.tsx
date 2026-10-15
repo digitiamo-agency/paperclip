@@ -184,7 +184,6 @@ function SecondaryAction({
       {...(download ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
       title={title}
       aria-label={title}
-      onClick={(event) => event.stopPropagation()}
       className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       {children}
@@ -193,18 +192,27 @@ function SecondaryAction({
 }
 
 export function ArtifactCard({ artifact }: ArtifactCardProps) {
+  // Stretched-link card: outer shell is a div so open/download <a> siblings stay
+  // valid HTML (nested <a> inside the navigation Link caused hydration errors).
   return (
-    <Link
-      // design-allow(card-pattern): navigation <Link> card; Card renders a div and would break anchor semantics (C5a Run 3)
-      to={artifact.href}
-      disableIssueQuicklook
+    <div
       data-testid="artifact-card"
       data-media-kind={artifact.mediaKind}
-      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card cursor-pointer transition-colors hover:border-foreground/20 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-foreground/20 hover:shadow-md"
     >
-      <ArtifactPreview artifact={artifact} />
+      {/* design-allow(card-pattern): stretched navigation <Link>; Card is a div and cannot own the primary href (C5a Run 3) */}
+      <Link
+        to={artifact.href}
+        disableIssueQuicklook
+        aria-label={artifact.title}
+        className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
 
-      <div className="flex flex-1 flex-col gap-1 p-3">
+      <div className="pointer-events-none relative z-0">
+        <ArtifactPreview artifact={artifact} />
+      </div>
+
+      <div className="pointer-events-none relative z-0 flex flex-1 flex-col gap-1 p-3">
         <div className="flex h-7 items-start justify-between gap-2">
           <h3
             className="min-w-0 flex-1 truncate text-sm font-medium leading-7 text-foreground/85"
@@ -212,7 +220,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
           >
             {artifact.title}
           </h3>
-          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <div className="pointer-events-auto relative z-10 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {artifact.openPath ? (
               <SecondaryAction href={artifact.openPath} title="Open file in new tab">
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -236,6 +244,6 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
           ) : null}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }

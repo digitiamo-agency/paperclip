@@ -12,6 +12,7 @@ import {
   Gem,
   Moon,
   MousePointer2,
+  Network,
   Sparkles,
   Terminal,
   Cpu,
@@ -78,6 +79,16 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     label: "Codex",
     description: "Codex CLI harness",
     icon: Code,
+    recommended: true,
+  },
+  /**
+   * First-run / picker label only. Hire persists as `opencode_local` with an
+   * OpenAI-compatible Chat Completions AI connection (gateway routing).
+   */
+  openai_compatible: {
+    label: "OpenAI Compatible",
+    description: "Custom OpenAI-compatible Chat Completions endpoint",
+    icon: Network,
     recommended: true,
   },
   paperclip_runner: {

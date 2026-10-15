@@ -17,6 +17,7 @@ const providerNames: Record<ChatProvider, string> = {
   telegram: "Telegram",
   agentmail: "AgentMail",
   "imessage-photon": "iMessage Photon",
+  "whatsapp-web": "WhatsApp Web",
 };
 
 export function ChatIdentityConfirm() {

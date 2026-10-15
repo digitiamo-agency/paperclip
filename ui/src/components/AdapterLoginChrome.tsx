@@ -42,14 +42,22 @@ export type AdapterLoginChrome = "panel" | "onboarding";
  * — "Anthropic" is right in a settings panel listing credentials and wrong in a
  * sentence that reads "Sign in to Claude".
  *
- * Three names for two adapters is a tension worth stating rather than hiding.
- * The concepts differ — vendor, tool, account — but if the product decides
- * otherwise, this is the one to delete.
+ * Provider-facing names for the connect step tiles. The concepts differ —
+ * vendor, tool, account — and unlisted adapters fall back to the display
+ * registry label rather than the raw type id.
  */
 export const CONNECT_SOURCE_NAMES: Record<string, string> = {
   claude_local: "Claude",
   codex_local: "OpenAI",
+  openai_compatible: "OpenAI Compatible",
+  cursor: "Cursor",
+  cursor_cloud: "Cursor Cloud",
+  gemini_local: "Gemini",
   grok_local: "Grok",
+  hermes_local: "Hermes",
+  kimi_local: "Kimi",
+  opencode_local: "OpenCode",
+  pi_local: "Pi",
 };
 
 /** The provider name for a source, falling back to the type when unlisted. */

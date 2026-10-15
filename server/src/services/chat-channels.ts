@@ -73,6 +73,22 @@ import { PhotonCloudClient, PhotonError, photonFailure, photonSharedIdentity, ph
 import { PhotonChatAdapter, photonThreadId, photonReplyReference } from "./photon/adapter.js";
 import { photonChannelConfigurationSchema, type PhotonChannelConfiguration } from "@paperclipai/shared";
 import type { LiveEvent as PhotonEvent } from "@photon-ai/advanced-imessage";
+import {
+  WhatsAppWebChatAdapter,
+  getWhatsAppWebSession,
+  peekWhatsAppWebSession,
+  stopWhatsAppWebSession,
+  whatsappWebThreadId,
+  DEFAULT_WHATSAPP_WEB_AUTO_REPLY_POLICY,
+  evaluateWhatsAppWebAutoReply,
+  isWhatsAppWebStatusMessage,
+  normalizeWhatsAppWebContactKey,
+  parseWhatsAppWebAutoReplyPolicy,
+  withMarkedKnownContact,
+  type WhatsAppWebAutoReplyPolicy,
+  type WhatsAppWebPairingStatus,
+  type WhatsAppWebRawMessage,
+} from "./whatsapp-web/index.js";
 import { defaultSlackAppConfiguration } from "@paperclipai/shared";
 import {
   createHash,
@@ -461,6 +477,7 @@ function publicationSummary(
 const PROVIDER_LABELS: Record<ChatProvider, string> = {
   speko: "Speko",
   "imessage-photon": "iMessage Photon",
+  "whatsapp-web": "WhatsApp Web",
   agentmail: "AgentMail",
   slack: "Slack",
   github: "GitHub",
@@ -699,6 +716,7 @@ async function inspectSlackCallback(
 const CAPABILITIES: Record<ChatProvider, ChatAdapterCapabilities> = {
   speko: { threads: false, directMessages: true, nativeStreaming: false, messageEdits: false, messageDeletes: false, reactions: false, files: false, cards: false, actions: false, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: false },
   "imessage-photon": { threads: false, directMessages: true, nativeStreaming: false, messageEdits: true, messageDeletes: false, reactions: false, files: true, cards: false, actions: true, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: false },
+  "whatsapp-web": { threads: false, directMessages: true, nativeStreaming: false, messageEdits: false, messageDeletes: false, reactions: false, files: false, cards: false, actions: false, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: false },
   agentmail: { threads: true, directMessages: true, nativeStreaming: false, messageEdits: false, messageDeletes: false, reactions: false, files: true, cards: false, actions: false, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: true },
   slack: {
     threads: true,
@@ -794,6 +812,7 @@ const REQUIRED_CREDENTIALS: Record<
 > = {
   speko: ["apiKey", "signingSecret", "agentId"],
   "imessage-photon": ["projectSecret"],
+  "whatsapp-web": [],
   agentmail: [],
   slack: ["botToken", "signingSecret"],
   discord: ["botToken", "applicationId", "guildId"],
@@ -839,6 +858,7 @@ const SUPPORTED_GITHUB_WEBHOOK_EVENTS = new Set<string>([
 const SUPPLIED_CREDENTIAL_KEYS: Record<ChatProvider, readonly string[]> = {
   speko: ["apiKey", "signingSecret", "agentId"],
   "imessage-photon": ["projectSecret"],
+  "whatsapp-web": [],
   agentmail: [],
   slack: ["botToken", "signingSecret"],
   github: ["appId", "privateKey"],
@@ -871,7 +891,9 @@ const ORPHAN_FOLLOW_UP_GRACE_MS = 5_000;
 const ORPHAN_FOLLOW_UP_MAX_ATTEMPTS = 12;
 const PUBLICATION_ENDPOINT_CONCURRENCY = 4;
 const DISCORD_GATEWAY_LEASE_KEY = "discord_gateway_runtime";
-function leasedChatProvider(provider: string): boolean { return provider === "discord" || provider === "imessage-photon"; }
+function leasedChatProvider(provider: string): boolean {
+  return provider === "discord" || provider === "imessage-photon" || provider === "whatsapp-web";
+}
 const DISCORD_GATEWAY_LEASE_TTL_MS = 15_000;
 const DISCORD_GATEWAY_LEASE_WAIT_MS = 20_000;
 const DISCORD_GATEWAY_LEASE_POLL_MS = 100;
@@ -913,6 +935,8 @@ type InternalSetupState = ChatEndpointSetupState & {
   slackCallbackSurfaces?: Partial<
     Record<SlackCallbackSurface, SlackCallbackObservation>
   >;
+  /** WhatsApp Web automatic-reply policy (default mode: none). */
+  whatsappWebAutoReply?: WhatsAppWebAutoReplyPolicy;
 };
 type RuntimeContext = {
   credentialFingerprint: string;
@@ -1540,7 +1564,10 @@ type DiscordGatewayOwnership = {
   context: RuntimeContext;
   endpointId: string;
   expiresAt: Date;
-  leaseKey: typeof DISCORD_GATEWAY_LEASE_KEY | "photon_receiver_runtime";
+  leaseKey:
+    | typeof DISCORD_GATEWAY_LEASE_KEY
+    | "photon_receiver_runtime"
+    | "whatsapp_web_runtime";
   renewTimer: ReturnType<typeof setInterval> | null;
   renewal: Promise<void> | null;
   stopPromise: Promise<void> | null;
@@ -2646,6 +2673,12 @@ function providerSetupState(
     case "speko":
       return { step, providerUrl: "https://platform.speko.ai/", webhookUrl } as const;
     case "imessage-photon": return { step, providerUrl: "https://photon.codes/", testStartedAt: endpoint.setup.testStartedAt } as const;
+    case "whatsapp-web":
+      return {
+        step,
+        providerUrl: "https://web.whatsapp.com/",
+        testStartedAt: endpoint.setup.testStartedAt,
+      } as const;
     case "agentmail": return endpoint.setup;
     case "slack": {
       const observations = (endpoint.setup as InternalSetupState)
@@ -3316,7 +3349,12 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     context: RuntimeContext,
     waitForOwnership: boolean,
   ): Promise<DiscordGatewayOwnership | null> {
-    const receiverLeaseKey = endpoint.provider === "imessage-photon" ? "photon_receiver_runtime" : DISCORD_GATEWAY_LEASE_KEY;
+    const receiverLeaseKey =
+      endpoint.provider === "imessage-photon"
+        ? "photon_receiver_runtime"
+        : endpoint.provider === "whatsapp-web"
+          ? "whatsapp_web_runtime"
+          : DISCORD_GATEWAY_LEASE_KEY;
     const local = discordGatewayOwnerships.get(endpoint.id);
     if (
       local &&
@@ -5868,6 +5906,13 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       botAvatarUrl: endpoint.botAvatarUrl,
       communicationInstructions: endpoint.communicationInstructions,
       ...(endpoint.provider === "imessage-photon" && endpoint.botExternalId ? { photonAllocation: endpoint.botExternalId.startsWith("photon-project:") ? "shared" as const : "dedicated" as const } : {}),
+      ...(endpoint.provider === "whatsapp-web"
+        ? {
+            whatsappWebAutoReply: parseWhatsAppWebAutoReplyPolicy(
+              (endpoint.setup as InternalSetupState).whatsappWebAutoReply,
+            ),
+          }
+        : {}),
       allowDirectMessages: endpoint.allowDirectMessages,
       requireAtMention: endpoint.requireAtMention,
       allowGroupChats: endpoint.allowGroupChats,
@@ -6058,7 +6103,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         // enables that surface, even when this process is running against a
         // database created before the column default was hardened.
         requireAtMention: input.provider === "slack",
-        allowGroupChats: !["microsoft-teams", "speko"].includes(input.provider),
+        allowGroupChats: !["microsoft-teams", "speko", "whatsapp-web"].includes(input.provider),
         allowUnlinkedPeople: !["slack", "imessage-photon", "speko"].includes(input.provider),
         capabilities: CAPABILITIES[input.provider],
         setup: {
@@ -6066,6 +6111,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           ...(input.provider === "slack"
             ? { slackApp: input.slackApp ?? defaultSlackAppConfiguration(agent.name),
                 command: (input.slackApp ?? defaultSlackAppConfiguration(agent.name)).command, slackSetupMethod: "automatic" }
+            : {}),
+          ...(input.provider === "whatsapp-web"
+            ? { whatsappWebAutoReply: { ...DEFAULT_WHATSAPP_WEB_AUTO_REPLY_POLICY } }
             : {}),
         },
       });
@@ -6151,6 +6199,38 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           values.allowGroupChats = input.allowGroupChats;
         if (input.allowUnlinkedPeople !== undefined)
           values.allowUnlinkedPeople = input.allowUnlinkedPeople;
+        if (input.whatsappWebAutoReply !== undefined) {
+          if (existing.endpoint.provider !== "whatsapp-web") {
+            throw unprocessable(
+              "Automatic reply policy only applies to WhatsApp Web connections",
+            );
+          }
+          const current = parseWhatsAppWebAutoReplyPolicy(
+            (existing.endpoint.setup as InternalSetupState).whatsappWebAutoReply,
+          );
+          const contacts =
+            input.whatsappWebAutoReply.contacts !== undefined
+              ? [
+                  ...new Set(
+                    input.whatsappWebAutoReply.contacts
+                      .map(normalizeWhatsAppWebContactKey)
+                      .filter(Boolean),
+                  ),
+                ].slice(0, 2_000)
+              : current.contacts;
+          const knownContacts = input.whatsappWebAutoReply.clearKnownContacts
+            ? []
+            : current.knownContacts;
+          values.setup = {
+            ...((values.setup as InternalSetupState | undefined) ??
+              existing.endpoint.setup),
+            whatsappWebAutoReply: {
+              mode: input.whatsappWebAutoReply.mode,
+              contacts,
+              knownContacts,
+            },
+          } as InternalSetupState;
+        }
         await db.transaction(async (tx) => {
           await credentialLease.assertOwned(tx);
           await tx
@@ -6206,6 +6286,21 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     provider: ChatProvider,
     credentials: Record<string, string>,
   ): Promise<VerifiedProviderIdentity> {
+    if (provider === "whatsapp-web") {
+      const wid = credentials.accountWid?.trim();
+      if (!wid) {
+        throw unprocessable("WhatsApp Web pairing is incomplete", {
+          code: "chat_whatsapp_web_not_paired",
+        });
+      }
+      return {
+        providerAccountId: wid,
+        providerAccountLabel: credentials.pushName || wid,
+        botExternalId: wid,
+        botUsername: credentials.pushName || wid.replace(/@.+$/, ""),
+        botLabel: credentials.pushName || wid.replace(/@.+$/, ""),
+      };
+    }
     if (provider === "imessage-photon") {
       const inspection = await inspectPhotonCredentials(credentials.projectId, credentials.projectSecret);
       if (inspection.allocation !== (credentials.allocation ?? "dedicated")) throw unprocessable("Photon allocation changed; inspect the project again");
@@ -6797,6 +6892,18 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     if (endpoint.provider === "imessage-photon") {
       const configuration = photonChannelConfigurationSchema.parse(connection.config.photon);
       return { ...values, ...configuration, lineId: configuration.allocation === "shared" ? photonSharedScope(configuration.projectId) : configuration.lineId };
+    }
+    if (endpoint.provider === "whatsapp-web") {
+      if (!endpoint.botExternalId) {
+        throw unprocessable("WhatsApp Web pairing is incomplete", {
+          code: "chat_whatsapp_web_not_paired",
+        });
+      }
+      return {
+        ...values,
+        accountWid: endpoint.botExternalId,
+        ...(endpoint.botUsername ? { pushName: endpoint.botUsername } : {}),
+      };
     }
     return values;
   }
@@ -7479,6 +7586,21 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       intakeAfter: Date.parse(String((endpoint.setup as InternalSetupState).photonIntakeAfter ?? endpoint.setup.testStartedAt ?? endpoint.createdAt.toISOString())),
       credentials: { allocation: credentials.allocation === "shared" ? "shared" : "dedicated", projectId: credentials.projectId, lineId: credentials.lineId, projectSecret: credentials.projectSecret, phoneNumber: endpoint.botExternalId! },
     };
+    if (endpoint.provider === "whatsapp-web") {
+      if (!endpoint.botExternalId) {
+        throw conflict("WhatsApp Web pairing is incomplete", {
+          code: "chat_whatsapp_web_not_paired",
+        });
+      }
+      return {
+        provider: "whatsapp-web",
+        userName,
+        credentials: {
+          accountWid: endpoint.botExternalId,
+          pushName: endpoint.botUsername ?? undefined,
+        },
+      };
+    }
     if (endpoint.provider === "slack")
       return {
         provider: "slack",
@@ -7861,6 +7983,15 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
               }),
               onPhotonEvent: (event) => handlePhotonEvent(endpoint.id, event, context),
               onPhotonFailure: (error) => handlePhotonFailure(endpoint.id, error, context),
+              onWhatsAppWebMessage:
+                record.endpoint.provider === "whatsapp-web"
+                  ? (message) =>
+                      handleWhatsAppWebMessage(endpoint.id, message, context)
+                  : undefined,
+              onWhatsAppWebFailure:
+                record.endpoint.provider === "whatsapp-web"
+                  ? (error) => handleWhatsAppWebFailure(endpoint.id, error, context)
+                  : undefined,
               onDiscordRootMentionAdmission:
                 record.endpoint.provider === "discord"
                   ? (event) =>
@@ -7983,7 +8114,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       )
       .where(
         and(
-          inArray(chatEndpoints.provider, ["discord", "imessage-photon"]),
+          inArray(chatEndpoints.provider, ["discord", "imessage-photon", "whatsapp-web"]),
           inArray(chatEndpoints.status, ["verifying", "active", "attention"]),
           eq(toolConnections.status, "active"),
           eq(toolConnections.enabled, true),
@@ -8166,6 +8297,246 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     }
     inspection.eligible = inspection.allocation === "shared" ? inspection.eligible && !reserved.some((row) => row.number === photonSharedIdentity(inspection.projectId)) : inspection.lines.some((line) => line.eligible);
     return inspection;
+  }
+
+  async function startWhatsAppWebPairing(
+    endpointId: string,
+  ): Promise<WhatsAppWebPairingStatus> {
+    const record = await endpointRecord(endpointId);
+    if (!record || record.endpoint.provider !== "whatsapp-web") {
+      throw notFound("WhatsApp Web endpoint not found");
+    }
+    if (
+      !["draft", "verifying", "attention", "paused"].includes(
+        record.endpoint.status,
+      )
+    ) {
+      throw conflict("WhatsApp Web pairing is not available in this state", {
+        code: "chat_whatsapp_web_pairing_unavailable",
+      });
+    }
+    const session = getWhatsAppWebSession(
+      record.endpoint.companyId,
+      record.endpoint.id,
+      {
+        onReady: async (status) => {
+          if (!status.wid) return;
+          await db
+            .update(chatEndpoints)
+            .set({
+              botExternalId: status.wid,
+              botUsername: status.pushName ?? status.wid.replace(/@.+$/, ""),
+              providerAccountId: status.wid,
+              providerAccountLabel: status.pushName ?? status.wid,
+              status: "verifying",
+              healthMessage: "WhatsApp Web paired; waiting for a direct message",
+              lastError: null,
+              setup: {
+                ...((record.endpoint.setup as InternalSetupState) ?? {}),
+                step: "test",
+                testStartedAt: new Date().toISOString(),
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(chatEndpoints.id, record.endpoint.id));
+        },
+      },
+    );
+    const status = await session.start();
+    if (status.phase === "failed") {
+      throw unprocessable(status.error ?? "WhatsApp Web pairing failed", {
+        code: "chat_whatsapp_web_pairing_failed",
+      });
+    }
+    if (status.phase === "ready" && status.wid) {
+      const next = await endpointRecord(endpointId);
+      if (next?.endpoint.botExternalId) {
+        await runtimeFor(next.endpoint, {
+          requireDiscordOwnership: true,
+          waitForDiscordOwnership: true,
+        }).catch(() => {});
+      }
+    }
+    return status;
+  }
+
+  async function getWhatsAppWebPairingStatus(
+    endpointId: string,
+  ): Promise<WhatsAppWebPairingStatus> {
+    const record = await endpointRecord(endpointId);
+    if (!record || record.endpoint.provider !== "whatsapp-web") {
+      throw notFound("WhatsApp Web endpoint not found");
+    }
+    const session = peekWhatsAppWebSession(record.endpoint.id);
+    if (session) return session.status();
+    if (record.endpoint.botExternalId) {
+      return {
+        phase: "ready",
+        qr: null,
+        qrDataUrl: null,
+        wid: record.endpoint.botExternalId,
+        pushName: record.endpoint.botUsername,
+        error: null,
+        updatedAt: record.endpoint.updatedAt.toISOString(),
+      };
+    }
+    return {
+      phase: "idle",
+      qr: null,
+      qrDataUrl: null,
+      wid: null,
+      pushName: null,
+      error: null,
+      updatedAt: record.endpoint.updatedAt.toISOString(),
+    };
+  }
+
+  async function handleWhatsAppWebFailure(
+    endpointId: string,
+    error: string,
+    context: RuntimeContext,
+  ) {
+    await db.transaction(async (tx) => {
+      const current = await runtimeCallbackEndpoint(tx, endpointId, context, [
+        "verifying",
+        "active",
+        "attention",
+      ]);
+      if (!current) return;
+      await notifyChatEndpointWork(tx);
+      await tx
+        .update(chatEndpoints)
+        .set({
+          status: "attention",
+          healthMessage: "WhatsApp Web session needs attention",
+          lastError: error.slice(0, MAX_ERROR_TEXT),
+          updatedAt: new Date(),
+        })
+        .where(eq(chatEndpoints.id, endpointId));
+    });
+  }
+
+  async function handleWhatsAppWebMessage(
+    endpointId: string,
+    message: WhatsAppWebRawMessage,
+    context: RuntimeContext,
+  ) {
+    const record = await runtimeCallbackRecord(endpointId, context, [
+      "verifying",
+      "active",
+      "attention",
+    ]);
+    if (!record) throw new Error("WhatsApp Web runtime no longer owns this endpoint");
+    const adapter = context.endpointRuntime!.getProviderAdapter();
+    if (!(adapter instanceof WhatsAppWebChatAdapter)) {
+      throw new Error("WhatsApp Web adapter unavailable");
+    }
+    if (message.isGroup || message.fromMe) return;
+    // Never wake the agent for WhatsApp Status / broadcast targets.
+    if (isWhatsAppWebStatusMessage(message)) return;
+    const accountWid = record.endpoint.botExternalId;
+    if (!accountWid) throw new Error("WhatsApp Web account identity is missing");
+    const threadId = whatsappWebThreadId({
+      accountWid,
+      chatId: message.chatId,
+    });
+    const setupState = record.endpoint.setup as InternalSetupState;
+    const policy = parseWhatsAppWebAutoReplyPolicy(
+      setupState.whatsappWebAutoReply,
+    );
+    // Setup verification must still accept the first inbound DM regardless of
+    // the operator auto-reply gate.
+    const bypassAutoReplyGate = record.endpoint.status === "verifying";
+    const decision = bypassAutoReplyGate
+      ? { allow: true, reason: "setup_verifying", markKnown: true }
+      : evaluateWhatsAppWebAutoReply({
+          policy,
+          chatId: message.chatId,
+          from: message.from,
+        });
+    await db.transaction(async (tx) => {
+      if (
+        !(await runtimeCallbackEndpoint(tx, endpointId, context, [
+          "verifying",
+          "active",
+        ]))
+      ) {
+        throw new Error("WhatsApp Web receiver is no longer current");
+      }
+      const ownership = await renewDiscordGatewayOwnershipForMessageAdmission(
+        tx,
+        endpointId,
+        context,
+      );
+      if (ownership.kind !== "owned") {
+        throw new Error("WhatsApp Web receiver lease was replaced");
+      }
+      await tx
+        .insert(chatEndpointResources)
+        .values({
+          companyId: record.endpoint.companyId,
+          endpointId,
+          providerResourceId: threadId,
+          type: "direct_message",
+          label: (message.notifyName || message.from.replace(/@.+$/, "")).slice(
+            0,
+            512,
+          ),
+          enabled: true,
+          availability: "available",
+          metadata: {
+            chatId: message.chatId,
+            autoReplyDecision: decision.reason,
+          },
+        })
+        .onConflictDoUpdate({
+          target: [
+            chatEndpointResources.endpointId,
+            chatEndpointResources.type,
+            chatEndpointResources.providerResourceId,
+          ],
+          set: {
+            availability: "available",
+            label: (message.notifyName || message.from.replace(/@.+$/, "")).slice(
+              0,
+              512,
+            ),
+            metadata: {
+              chatId: message.chatId,
+              autoReplyDecision: decision.reason,
+            },
+            updatedAt: new Date(),
+          },
+        });
+      if (decision.markKnown) {
+        const nextPolicy = withMarkedKnownContact(
+          policy,
+          message.chatId,
+          message.from,
+        );
+        await tx
+          .update(chatEndpoints)
+          .set({
+            setup: {
+              ...setupState,
+              whatsappWebAutoReply: nextPolicy,
+            } as InternalSetupState,
+            updatedAt: new Date(),
+          })
+          .where(eq(chatEndpoints.id, endpointId));
+      }
+    });
+    if (!decision.allow) return;
+    await handleSdkMessage(
+      {
+        provider: "whatsapp-web",
+        endpointId,
+        thread: context.endpointRuntime!.thread(threadId),
+        message: adapter.parseMessage(message),
+        trigger: "direct_message",
+      },
+      context,
+    );
   }
 
   async function handlePhotonFailure(
@@ -9418,7 +9789,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     ) {
       throw unprocessable("Unsupported chat endpoint setup action");
     }
-    if (!getWebhookPublicBaseUrl() && endpoint.provider !== "discord" && endpoint.provider !== "imessage-photon" && !(endpoint.provider === "github" && endpoint.setup.github?.cloudRegistrationId)) {
+    if (!getWebhookPublicBaseUrl() && endpoint.provider !== "discord" && endpoint.provider !== "imessage-photon" && endpoint.provider !== "whatsapp-web" && !(endpoint.provider === "github" && endpoint.setup.github?.cloudRegistrationId)) {
       throw unprocessable(
         `A public HTTPS Paperclip URL is required before connecting ${PROVIDER_LABELS[endpoint.provider]}`,
       );
@@ -9465,6 +9836,11 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         endpoint.provider === "github" &&
         endpoint.status === "verifying" &&
         endpoint.setup.step === "provider_setup"
+      ) &&
+      !(
+        endpoint.provider === "whatsapp-web" &&
+        endpoint.status === "verifying" &&
+        !endpoint.botExternalId
       )
     ) {
       throw conflict(
@@ -9497,6 +9873,14 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           code: "chat_webhook_not_verified",
         },
       );
+    }
+
+    if (
+      endpoint.provider === "whatsapp-web" &&
+      (input.action === "configure" || input.action === "reconnect")
+    ) {
+      await startWhatsAppWebPairing(endpointId);
+      return get(endpointId);
     }
 
     let verifiedCurrentIdentity: VerifiedProviderIdentity = endpoint;
@@ -33712,6 +34096,31 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         }
       }
     }
+    if (input.endpoint.provider === "whatsapp-web") {
+      const adapter = endpointRuntime.getProviderAdapter();
+      if (!(adapter instanceof WhatsAppWebChatAdapter)) {
+        throw new Error("WhatsApp Web publication runtime unavailable");
+      }
+      const assertCurrent = async () => {
+        const current = await endpointRecord(input.endpoint.id);
+        if (
+          !current ||
+          !["verifying", "active"].includes(current.endpoint.status) ||
+          runtimeGeneration(current.endpoint.setup) !==
+            runtimeGeneration(input.endpoint.setup) ||
+          runtime.get(input.endpoint.id) !== endpointRuntime
+        ) {
+          throw new Error("WhatsApp Web publication authority changed");
+        }
+      };
+      const sent = await adapter.publish(
+        thread.id,
+        input.publication.id,
+        { markdown: text },
+        { assertCurrent },
+      );
+      return sent;
+    }
     if (input.endpoint.provider === "imessage-photon") {
       const adapter = endpointRuntime.getProviderAdapter();
       if (!(adapter instanceof PhotonChatAdapter))
@@ -39058,6 +39467,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     generateSetupSecret,
     configure,
     inspectPhoton,
+    startWhatsAppWebPairing,
+    getWhatsAppWebPairingStatus,
     test,
     finishSlackSetup: (endpointId: string, userId: string) => test(endpointId, { optionalSlackTestForUser: userId }),
     setupTestStatus,
@@ -39142,6 +39553,13 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       // Stop every provider runtime before releasing leader rows. This gives a
       // standby an immediate takeover path without overlapping Gateway sockets.
       await runtime.shutdown();
+      const whatsappEndpoints = await db
+        .select({ id: chatEndpoints.id })
+        .from(chatEndpoints)
+        .where(eq(chatEndpoints.provider, "whatsapp-web"));
+      await Promise.allSettled(
+        whatsappEndpoints.map((row) => stopWhatsAppWebSession(row.id)),
+      );
       await slackRegistration.close();
       await Promise.all(
         ownedDiscordGateways.map((ownership) =>

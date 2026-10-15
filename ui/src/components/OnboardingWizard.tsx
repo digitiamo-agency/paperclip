@@ -16,10 +16,19 @@ import type {
   AdapterEnvironmentTestResult,
   AgentRole,
   ClaudeOAuthTokenStatusResponse,
+  CompanyDialogueLanguage,
   Environment,
   InstanceSettings,
 } from "@paperclipai/shared";
-import { AGENT_ROLES, AGENT_ROLE_LABELS, ADAPTER_AUTH_MISSING_CHECK_CODE } from "@paperclipai/shared";
+import {
+  AGENT_ROLES,
+  AGENT_ROLE_LABELS,
+  ADAPTER_AUTH_MISSING_CHECK_CODE,
+  COMPANY_DIALOGUE_LANGUAGES,
+  COMPANY_DIALOGUE_LANGUAGE_LABELS,
+  DEFAULT_COMPANY_DIALOGUE_LANGUAGE,
+  isCompanyDialogueLanguage,
+} from "@paperclipai/shared";
 import { AdapterLoginPanel } from "./AgentConfigForm";
 import {
   CONNECT_SOURCE_NAMES,
@@ -129,8 +138,13 @@ import {
 import { AgentPreview } from "./onboarding/AgentPreview";
 import { ModelSourceTiles, type CredentialMode } from "./onboarding/ModelSourceTiles";
 import { CredentialModeLink } from "./onboarding/CredentialModeLink";
+import {
+  OpenAiCompatibleConnectForm,
+  type OpenAiCompatibleModelOption,
+} from "./onboarding/OpenAiCompatibleConnectForm";
 import { FooterNav, type FooterPrimaryIcon } from "./onboarding/FooterNav";
 import { OnboardingHeading } from "./onboarding/OnboardingPrimitives";
+import { aiRoutingModel } from "@paperclipai/shared";
 import { DEFAULT_AGENT_ROLE } from "../lib/onboarding-agent-role";
 import { capsuleHeroMotion, capsuleRoomEnter, capsuleRoomExit, heroRoomArrival, heroRoomMotion, ledeMotion, stepContentMotion, titleSwapMotion } from "./onboarding/onboarding-motion";
 import { Badge } from "@/components/ui/badge";
@@ -572,6 +586,11 @@ function OnboardingWizardInner({
 
   // Step 1
   const [companyName, setCompanyName] = useState((saved?.companyName as string) ?? "");
+  const [dialogueLanguage, setDialogueLanguage] = useState<CompanyDialogueLanguage>(() =>
+    isCompanyDialogueLanguage(saved?.dialogueLanguage)
+      ? saved.dialogueLanguage
+      : DEFAULT_COMPANY_DIALOGUE_LANGUAGE,
+  );
 
   // Step 2
   // The name is not defaulted: a pre-filled "Chief of staff" is a choice made
@@ -644,6 +663,9 @@ function OnboardingWizardInner({
     useState(false);
   const [unsetAnthropicLoading, setUnsetAnthropicLoading] = useState(false);
   const [showMoreAdapters, setShowMoreAdapters] = useState(false);
+  const [compatibleModels, setCompatibleModels] = useState<OpenAiCompatibleModelOption[]>([]);
+  const [compatibleModelsLoading, setCompatibleModelsLoading] = useState(false);
+  const [compatibleModelsError, setCompatibleModelsError] = useState<string | null>(null);
   /**
    * Whether the connect step is asking for a subscription sign-in or an API key.
    *
@@ -896,14 +918,19 @@ function OnboardingWizardInner({
   useEffect(() => {
     if (!effectiveOnboardingOpen || !createdCompanyId || companyName) return;
     const company = companies.find((c) => c.id === createdCompanyId);
-    if (company) setCompanyName(company.name);
+    if (company) {
+      setCompanyName(company.name);
+      if (isCompanyDialogueLanguage(company.dialogueLanguage)) {
+        setDialogueLanguage(company.dialogueLanguage);
+      }
+    }
   }, [effectiveOnboardingOpen, createdCompanyId, companyName, companies]);
 
   // Persist wizard state to localStorage on every change
   useEffect(() => {
     if (!effectiveOnboardingOpen) return;
     const state = {
-      step, companyName,
+      step, companyName, dialogueLanguage,
       agentName, agentAppearance, agentRole, adapterType, cwd, model, command, args, url,
       // The mode, never the key: this blob is localStorage.
       credentialMode, credentialModeChoice,
@@ -912,7 +939,7 @@ function OnboardingWizardInner({
     };
     onboardingDraftStorage.write(JSON.stringify(state));
   }, [
-    effectiveOnboardingOpen, step, companyName,
+    effectiveOnboardingOpen, step, companyName, dialogueLanguage,
     agentName, agentAppearance, agentRole, adapterType, cwd, model, command, args, url,
     credentialMode, credentialModeChoice,
     createdCompanyId, createdCompanyPrefix, createdAgentId,
@@ -931,8 +958,14 @@ function OnboardingWizardInner({
       ? queryKeys.agents.adapterModels(createdCompanyId, adapterType, null)
       : ["agents", "none", "adapter-models", adapterType, null],
     queryFn: () => agentsApi.adapterModels(createdCompanyId!, adapterType, { environmentId: null }),
-    // Models are picked on step 4 (Connect a model).
-    enabled: Boolean(createdCompanyId) && effectiveOnboardingOpen && step === 4
+    // Models are picked on step 4 (Connect a model). Skip the synthetic
+    // OpenAI Compatible source — it loads models via discover-models, not the
+    // harness catalog (which would 422 on an unknown adapter type).
+    enabled:
+      Boolean(createdCompanyId) &&
+      effectiveOnboardingOpen &&
+      step === 4 &&
+      adapterType !== "openai_compatible"
   });
   const getCapabilities = useAdapterCapabilities();
   const adapterCaps = getCapabilities(adapterType);
@@ -1133,21 +1166,63 @@ function OnboardingWizardInner({
     adapterType === "cursor";
   // Build adapter grids dynamically from the UI registry + display metadata.
   // External/plugin adapters automatically appear with generic defaults, and
-  // server-disabled types are filtered out.
+  // server-disabled types are filtered out. Experimental / coming-soon types
+  // stay out of the first-run row — they remain available from agent config.
+  // `openai_compatible` is a first-run source (not a harness package): hire
+  // maps it to OpenCode + a Chat Completions gateway connection.
   const { recommendedAdapters, moreAdapters } = useMemo(() => {
     const all = listUIAdapters()
-      .filter((a) =>
-        !ONBOARDING_EXCLUDED_ADAPTER_TYPES.has(a.type) &&
-        !disabledTypes.has(a.type) &&
-        isVisualAdapterChoice(a.type)
-      )
+      .filter((a) => {
+        if (ONBOARDING_EXCLUDED_ADAPTER_TYPES.has(a.type)) return false;
+        if (a.type === "openai_compatible") return false;
+        if (disabledTypes.has(a.type)) return false;
+        if (!isVisualAdapterChoice(a.type)) return false;
+        const display = getAdapterDisplay(a.type);
+        return !display.comingSoon && !display.experimental;
+      })
       .map((a) => ({ ...getAdapterDisplay(a.type), type: a.type }));
-
+    // Only when the registry already has harnesses. An empty registry (tests,
+    // or a brief load gap) must not leave this synthetic source as the sole
+    // "visible" adapter — the snap would replace `claude_local` with it and
+    // re-persist a draft the restore-gate just wiped.
+    const withCompatible =
+      all.length === 0
+        ? all
+        : [
+            ...all,
+            {
+              ...getAdapterDisplay("openai_compatible"),
+              type: "openai_compatible",
+            },
+          ];
     return {
-      recommendedAdapters: all.filter((a) => a.recommended),
-      moreAdapters: all.filter((a) => !a.recommended),
+      recommendedAdapters: withCompatible.filter((a) => a.recommended),
+      moreAdapters: withCompatible.filter((a) => !a.recommended),
     };
   }, [disabledTypes]);
+
+  const isOpenAiCompatible = adapterType === "openai_compatible";
+
+  /**
+   * Sources the connect step is currently offering as tiles.
+   *
+   * Recommended adapters (Claude, OpenAI) stay on the first row. Everything
+   * else opens behind "Show more", so the first-run question stays short
+   * without hiding the rest of the visual registry.
+   */
+  const connectSourceAdapters = showMoreAdapters
+    ? [...recommendedAdapters, ...moreAdapters]
+    : recommendedAdapters;
+
+  // A restored draft (or a later pick) that names an advanced source must open
+  // the advanced list, or the tile row would hide a type the hire still holds.
+  // Do not depend on `showMoreAdapters` itself — that would fight "Show fewer"
+  // and reopen the list on every collapse while the draft still names one.
+  useEffect(() => {
+    if (moreAdapters.some((opt) => opt.type === adapterType)) {
+      setShowMoreAdapters(true);
+    }
+  }, [adapterType, moreAdapters]);
 
   /**
    * A source chosen from the visible row. Read off the row rather than off
@@ -1155,7 +1230,7 @@ function OnboardingWizardInner({
    * no longer offers — a selection the customer cannot see.
    */
   const sourceSelected =
-    sourcePicked && recommendedAdapters.some((opt) => opt.type === adapterType);
+    sourcePicked && connectSourceAdapters.some((opt) => opt.type === adapterType);
 
   /**
    * Whether the connect step may advance.
@@ -1174,7 +1249,15 @@ function OnboardingWizardInner({
    * Anything that gates this step belongs in here, so the next one is added
    * once rather than twice.
    */
-  const connectStepReady = sourceSelected && !adapterEnvLoading && !savedKeys.loading;
+  const connectStepReady =
+    sourceSelected &&
+    !adapterEnvLoading &&
+    !savedKeys.loading &&
+    !compatibleModelsLoading &&
+    (!isOpenAiCompatible ||
+      (Boolean(url.trim()) &&
+        Boolean(model.trim()) &&
+        compatibleModels.some((entry) => entry.id === model)));
 
   /**
    * Whether this step has a sign-in to do before it can hire.
@@ -1214,7 +1297,10 @@ function OnboardingWizardInner({
 
   /** Without browser login, show instructions for the selected execution environment. */
   const connectStepHasNoSandbox =
-    credentialMode !== "api" && !canShowAdapterLogin && !authSignalUndecided;
+    !isOpenAiCompatible &&
+    credentialMode !== "api" &&
+    !canShowAdapterLogin &&
+    !authSignalUndecided;
 
   /*
     The sequence's derived state. Space and visibility are separate throughout:
@@ -1227,7 +1313,12 @@ function OnboardingWizardInner({
   const connectProgress = adapterEnvLoading ? "Testing connection…" : loading ? "Connecting…" : null;
   const hasSavedSubscription = Boolean(savedSubscription || savedKeys.storedLogin.data ||
     (credentialMode !== "api" && managedBindingForStep()));
-  const connectHasCard = credentialMode === "api" || connectStepNeedsLogin || connectStepHasNoSandbox || Boolean(connectProgress);
+  const connectHasCard =
+    isOpenAiCompatible ||
+    credentialMode === "api" ||
+    connectStepNeedsLogin ||
+    connectStepHasNoSandbox ||
+    Boolean(connectProgress);
   const connectCardLive =
     connectHasCard &&
     (connectPhase === "loading" ||
@@ -1250,11 +1341,13 @@ function OnboardingWizardInner({
    */
   const connectCardMounted = connectCardSpace || connectPhase === "unwindRoom";
   const connectLinkSpace =
-    connectPhase === "idle" ||
-    connectPhase === "collapsing" ||
-    connectPhase === "unwindRoom" ||
-    connectPhase === "unwindRow";
-  const connectLinkVisible = connectPhase === "idle" || connectPhase === "unwindRow";
+    !isOpenAiCompatible &&
+    (connectPhase === "idle" ||
+      connectPhase === "collapsing" ||
+      connectPhase === "unwindRoom" ||
+      connectPhase === "unwindRow");
+  const connectLinkVisible =
+    !isOpenAiCompatible && (connectPhase === "idle" || connectPhase === "unwindRow");
 
   /**
    * When "Connecting" started, and whether the login behind it has finished.
@@ -1385,7 +1478,11 @@ function OnboardingWizardInner({
                 label: "Connect",
                 icon: "arrow",
                 disabled:
-                  !connectStepReady || (credentialMode === "api" && !apiKey.trim() && !selectedApiKey),
+                  !connectStepReady ||
+                  (!isOpenAiCompatible &&
+                    credentialMode === "api" &&
+                    !apiKey.trim() &&
+                    !selectedApiKey),
               }
           : // Nothing is chosen on arrival, and the row is what chooses. Until
             // it has been answered the button has nothing to do.
@@ -1886,6 +1983,10 @@ function OnboardingWizardInner({
     adapterConfigOverride?: Record<string, unknown>,
     appliedStoredClaudeLoginBinding = false,
     isCurrent = () => true,
+    options?: {
+      adapterTypeOverride?: string;
+      aiConnection?: AiConnectionBinding;
+    },
   ): Promise<AdapterEnvironmentTestResult | null> {
     if (!createdCompanyId) {
       setAdapterEnvError(
@@ -1947,12 +2048,15 @@ function OnboardingWizardInner({
         visibleEnvironmentIds: environmentList.map((environment) => environment.id),
       });
       if (!isCurrent()) return null;
+      const testAdapterType = options?.adapterTypeOverride ?? adapterType;
+      const testAiConnection =
+        options?.aiConnection ?? managedBindingForStep() ?? undefined;
       const result = await agentsApi.testEnvironment(
         createdCompanyId,
-        adapterType,
+        testAdapterType,
         {
           adapterConfig: adapterConfigOverride ?? buildAdapterConfig(),
-          ...(managedBindingForStep() ? { aiConnection: managedBindingForStep() } : {}),
+          ...(testAiConnection ? { aiConnection: testAiConnection } : {}),
           environmentId,
         }
       );
@@ -1979,7 +2083,22 @@ function OnboardingWizardInner({
   // organization a goal it did not choose.
   async function handleCreateCompany() {
     if (createdCompanyId) {
-      setStep(3);
+      // Company already exists (back-navigation or draft restore). Persist the
+      // dialogue language so a later change on this step still reaches hire.
+      setLoading(true);
+      setError(null);
+      try {
+        await companiesApi.update(createdCompanyId, {
+          name: companyName.trim() || undefined,
+          dialogueLanguage,
+        });
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+        setStep(3);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update organization");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
     if (creatingCompanyRef.current) return;
@@ -1988,7 +2107,10 @@ function OnboardingWizardInner({
     setError(null);
     const companyIdAtStart = createdCompanyIdRef.current;
     try {
-      const company = await companiesApi.create({ name: companyName.trim() });
+      const company = await companiesApi.create({
+        name: companyName.trim(),
+        dialogueLanguage,
+      });
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       // Nothing was in hand when this started, so "unchanged" means still
       // nothing. A route that supplied a company while the request was open has
@@ -2039,6 +2161,126 @@ function OnboardingWizardInner({
     setLoading(true);
     setError(null);
     try {
+      // OpenAI Compatible is a connect-step source, not a harness. Persist as
+      // OpenCode + a Chat Completions gateway connection, then hire that pair.
+      if (adapterType === "openai_compatible") {
+        const baseUrl = url.trim();
+        const selectedModelId = model.trim();
+        const key = apiKey.trim();
+        if (!baseUrl || !selectedModelId) {
+          setError("Enter a base URL, load models, and select a model.");
+          return;
+        }
+        if (!compatibleModels.some((entry) => entry.id === selectedModelId)) {
+          setError("Load models and select one from the catalog.");
+          return;
+        }
+        const routing = {
+          kind: "gateway" as const,
+          protocol: "chat" as const,
+          auth: (key ? "bearer" : "none") as "bearer" | "none",
+          baseUrl,
+          models: [{ id: selectedModelId }],
+        };
+        let connectionName = "OpenAI Compatible";
+        try {
+          connectionName = `My ${new URL(baseUrl).hostname}`;
+        } catch {
+          /* keep fallback name */
+        }
+        const createdConnection = await aiConnectionsApi.create(createdCompanyId, {
+          provider: "openai",
+          method: "api_key",
+          name: connectionName,
+          ownership: "personal",
+          ...(key ? { apiKey: key } : {}),
+          agentIds: [],
+          allAgents: true,
+          routing,
+        });
+        if (!isCurrent()) return;
+        const aiBinding = {
+          provider: "openai" as const,
+          method: "api_key" as const,
+          mode: "delegated" as const,
+          connectionId: createdConnection.connectionId,
+          grantId: createdConnection.grantId,
+        };
+        const hireModel = aiRoutingModel(routing, "opencode_local", selectedModelId);
+        const hireAdapterConfig = getUIAdapter("opencode_local").buildAdapterConfig({
+          ...defaultCreateValues,
+          adapterType: "opencode_local",
+          model: hireModel,
+          command,
+          args,
+          url: "",
+          dangerouslySkipPermissions: true,
+          dangerouslyBypassSandbox: defaultCreateValues.dangerouslyBypassSandbox,
+        });
+        if (!agentRole || !isCurrent()) return;
+        const hireName = agentName.trim() || AGENT_ROLE_LABELS[agentRole];
+        const existingAgents = await agentsApi.list(createdCompanyId).catch(() => null);
+        if (!isCurrent()) return;
+        const existing = existingAgents?.find(
+          (agent) =>
+            agent.name.trim().toLowerCase() === hireName.toLowerCase() &&
+            agent.adapterType === "opencode_local",
+        );
+        if (existing) {
+          setCreatedAgentId(existing.id);
+          setAgentAppearance(resolveAgentAppearance(existing.appearance, existing.id));
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.agents.list(createdCompanyId),
+          });
+          setStep(5);
+          return;
+        }
+        const result = await runAdapterEnvironmentTest(
+          hireAdapterConfig,
+          false,
+          isCurrent,
+          { adapterTypeOverride: "opencode_local", aiConnection: aiBinding },
+        );
+        if (!result || !isCurrent()) return;
+        if (blocksAgentCreate(result)) {
+          setError(
+            result.status === "fail"
+              ? "The environment test failed. OpenCode must be installed for OpenAI Compatible agents. Fix the reported checks before you hire."
+              : "No working authentication was found. Fix the reported checks before you hire this agent.",
+          );
+          return;
+        }
+        const hire = await agentsApi.hire(createdCompanyId, {
+          name: hireName,
+          appearance: agentAppearance,
+          role: agentRole,
+          adapterType: "opencode_local",
+          adapterConfig: hireAdapterConfig,
+          onboardingFirstAgent: true,
+          runtimeConfig: {
+            ...buildNewAgentRuntimeConfig(),
+            aiConnection: aiBinding,
+          },
+        });
+        if (!isCurrent()) return;
+        if (hire.approval) {
+          await approvalsApi.approve(
+            hire.approval.id,
+            "Approved during onboarding first-agent setup.",
+          );
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.approvals.list(createdCompanyId),
+          });
+        }
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.agents.list(createdCompanyId),
+        });
+        if (!isCurrent()) return;
+        setCreatedAgentId(hire.agent.id);
+        setStep(5);
+        return;
+      }
+
       if (adapterType === "opencode_local") {
         const selectedModelId = model.trim();
         if (!isValidOpenCodeModelId(selectedModelId)) {
@@ -2619,6 +2861,32 @@ function OnboardingWizardInner({
                       autoFocus
                     />
                   </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="onboarding-dialogue-language">Dialogue language</Label>
+                    <Select
+                      value={dialogueLanguage}
+                      onValueChange={(value) => {
+                        if (isCompanyDialogueLanguage(value)) setDialogueLanguage(value);
+                      }}
+                    >
+                      <SelectTrigger
+                        id="onboarding-dialogue-language"
+                        className="h-(--sz-44px) w-full rounded-lg border-transparent bg-muted shadow-none dark:bg-muted"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMPANY_DIALOGUE_LANGUAGES.map((code) => (
+                          <SelectItem key={code} value={code}>
+                            {COMPANY_DIALOGUE_LANGUAGE_LABELS[code]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      Agents speak with you in this language. Agent-to-agent messages stay in English.
+                    </p>
+                  </div>
                 </motion.div>
               )}
 
@@ -2663,17 +2931,16 @@ function OnboardingWizardInner({
               {step === 4 && (
                 <motion.div key="step-4" {...stepContentMotion} exit={stepHandoff ? stepContentMotion.exit : undefined} className="space-y-8">
                   <div>
-                    {/* Sources come from `recommendedAdapters`, not a list
-                        written here — that filter is `recommended` in the
-                        display registry, so a third tile appears the day
-                        someone marks one rather than the day someone
-                        remembers to edit this file.
+                    {/* Sources come from the display registry: recommended
+                        tiles first, then the rest behind "Show more". Marking
+                        another adapter `recommended` promotes it without
+                        editing this file; everything else stays one click away.
 
                         Picking one starts the sign-in now. The row is the
                         question, and answering it is what opens the card. */}
                     <ModelSourceTiles
                       label="Model source"
-                      sources={recommendedAdapters.map((opt) => ({
+                      sources={connectSourceAdapters.map((opt) => ({
                         id: opt.type,
                         label: CONNECT_SOURCE_NAMES[opt.type] ?? opt.label,
                         icon: <ModelSourceMark type={opt.type} Fallback={opt.icon} />,
@@ -2681,7 +2948,7 @@ function OnboardingWizardInner({
                       mode={credentialMode}
                       selectedId={
                         sourcePicked &&
-                        recommendedAdapters.some((opt) => opt.type === adapterType)
+                        connectSourceAdapters.some((opt) => opt.type === adapterType)
                           ? adapterType
                           : null
                       }
@@ -2692,11 +2959,40 @@ function OnboardingWizardInner({
                         autoConnectStartedRef.current = false;
                         setSourcePicked(true);
                         setAdapterType(id);
-                        if (id === "opencode_local") setModel(DEFAULT_OPENCODE_LOCAL_MODEL);
+                        setCompatibleModels([]);
+                        setCompatibleModelsError(null);
+                        if (id === "openai_compatible") {
+                          setModel("");
+                          setApiKey("");
+                        } else if (id === "opencode_local") setModel(DEFAULT_OPENCODE_LOCAL_MODEL);
+                        else if (id === "gemini_local") setModel(DEFAULT_GEMINI_LOCAL_MODEL);
+                        else if (id === "cursor") setModel(DEFAULT_CURSOR_LOCAL_MODEL);
+                        else if (id === "kimi_local") setModel(DEFAULT_KIMI_LOCAL_MODEL);
                         else if (id !== "codex_local") setModel("");
                         setConnectPhase("collapsing");
                       }}
                     />
+
+                    {/* Keep the advanced list off the first paint so Claude and
+                        OpenAI stay the short answer. Once a sign-in is running
+                        the row collapses and this control goes with it — there
+                        is no switching source without abandoning the login. */}
+                    {moreAdapters.length > 0 && !connectCollapsed && (
+                      <div className="-ml-3 mt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowMoreAdapters((open) => !open)}
+                          className={cn(
+                            "cursor-pointer rounded-md px-3 py-2 text-left text-sm font-medium",
+                            "text-muted-foreground underline decoration-muted-foreground/40 underline-offset-4",
+                            "transition-colors hover:text-foreground hover:decoration-foreground/40",
+                            "outline-none focus-visible:ring-ring/50 focus-visible:ring-(length:--rad-3)",
+                          )}
+                        >
+                          {showMoreAdapters ? "Show fewer adapters" : "Show more adapters"}
+                        </button>
+                      </div>
+                    )}
 
                     {/* Fades on the first beat but keeps its space until the
                         second, so pressing a tile moves nothing vertically.
@@ -2769,6 +3065,62 @@ function OnboardingWizardInner({
                         <Loader2 className="size-4 animate-spin" />
                         {connectProgress}
                       </p>
+                    ) : isOpenAiCompatible ? (
+                      <OpenAiCompatibleConnectForm
+                        baseUrl={url}
+                        apiKey={apiKey}
+                        model={model}
+                        models={compatibleModels}
+                        loading={compatibleModelsLoading}
+                        error={compatibleModelsError}
+                        disabled={loading || adapterEnvLoading}
+                        onBaseUrlChange={(value) => {
+                          setUrl(value);
+                          setCompatibleModels([]);
+                          setCompatibleModelsError(null);
+                          setModel("");
+                        }}
+                        onApiKeyChange={(value) => {
+                          setApiKey(value);
+                          setCompatibleModels([]);
+                          setCompatibleModelsError(null);
+                        }}
+                        onModelChange={setModel}
+                        onLoadModels={() => {
+                          if (!createdCompanyId || !url.trim()) return;
+                          void (async () => {
+                            setCompatibleModelsLoading(true);
+                            setCompatibleModelsError(null);
+                            try {
+                              const result = await aiConnectionsApi.discoverModels(
+                                createdCompanyId,
+                                {
+                                  baseUrl: url.trim(),
+                                  apiKey: apiKey.trim() || undefined,
+                                },
+                              );
+                              setCompatibleModels(result.models);
+                              if (result.models.length === 1) {
+                                setModel(result.models[0]!.id);
+                              } else if (
+                                !result.models.some((entry) => entry.id === model)
+                              ) {
+                                setModel("");
+                              }
+                            } catch (err) {
+                              setCompatibleModels([]);
+                              setModel("");
+                              setCompatibleModelsError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Could not load models from the endpoint.",
+                              );
+                            } finally {
+                              setCompatibleModelsLoading(false);
+                            }
+                          })();
+                        }}
+                      />
                     ) : credentialMode === "api" ? (
                       <OnboardingLoginCard
                         instruction={savedKeys.options.length ? "Choose a saved API key or enter a new one" : `Provide your ${

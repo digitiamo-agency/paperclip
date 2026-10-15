@@ -520,6 +520,7 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
   "low_trust_boundary_mismatch",
   "low_trust_requires_sandbox_environment",
   "low_trust_runtime_services_denied",
+  "host_workspace_filesystem_scope_required",
 ]);
 
 // A continuation cancelled with this code is a *deliberate wait* (the latest run
@@ -2094,8 +2095,8 @@ export function recoveryService(
       .limit(1)
       .then((rows) => rows[0] ?? null);
     if (userComment !== null) return false;
-    // Answering the seeded opening card ("interview me" / "I have a task in
-    // mind") is the user's first input too, even though it is not a comment.
+    // A user-resolved thread interaction counts as first input too (legacy
+    // opening card, or any later question card), even when it is not a comment.
     const userResolvedInteraction = await db
       .select({ id: issueThreadInteractions.id })
       .from(issueThreadInteractions)

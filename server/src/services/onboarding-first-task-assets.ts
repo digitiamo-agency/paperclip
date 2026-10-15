@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   askUserQuestionsPayloadSchema,
   askUserQuestionsQuestionOptionSchema,
+  normalizeCompanyDialogueLanguage,
   type AskUserQuestionsPayload,
+  type CompanyDialogueLanguage,
 } from "@paperclipai/shared";
 
 // Everything the onboarding first agent is told lives as plain markdown under
@@ -16,12 +18,12 @@ import {
 export interface OnboardingFirstTaskPlaceholders {
   agentName?: string | null;
   organizationName?: string | null;
+  dialogueLanguage?: CompanyDialogueLanguage | string | null;
 }
 
-// The opening card seeded on the first task right after the greeting: one
-// single-select question with two options, "interview me" or "I have a task in
-// mind" (free text). The first-task skill refers to these ids, so they are fixed here;
-// only the wording lives in opening-question.json.
+// Legacy opening-card ids. The server no longer seeds this card after the
+// greeting (users type freely), but the builder/fixture helpers keep these
+// ids stable for tests and historical evidence.
 export const ONBOARDING_FIRST_TASK_OPENING_QUESTION_ID = "first-task-opening";
 export const ONBOARDING_FIRST_TASK_OPENING_INTERVIEW_OPTION_ID = "interview";
 export const ONBOARDING_FIRST_TASK_OPENING_TASK_OPTION_ID = "task";
@@ -87,17 +89,28 @@ export function fillFirstTaskPlaceholders(
   return out;
 }
 
+async function loadGreetingTemplate(dialogueLanguage: CompanyDialogueLanguage): Promise<string> {
+  if (dialogueLanguage === "it") {
+    try {
+      return await loadFirstTaskAsset("greeting.it.md");
+    } catch {
+      // Fall back to the English greeting when the localized asset is missing.
+    }
+  }
+  return loadFirstTaskAsset("greeting.md");
+}
+
 // Layer C — the deterministic greeting posted as the agent on the first task.
 export async function renderOnboardingFirstTaskGreeting(
   placeholders: OnboardingFirstTaskPlaceholders,
 ): Promise<string> {
-  const template = await loadFirstTaskAsset("greeting.md");
+  const dialogueLanguage = normalizeCompanyDialogueLanguage(placeholders.dialogueLanguage);
+  const template = await loadGreetingTemplate(dialogueLanguage);
   return fillFirstTaskPlaceholders(template, placeholders).trim();
 }
 
-// Layer C — the opening ask_user_questions card seeded as the agent right after
-// the greeting, so the first task is not open-ended: the user either asks to be
-// interviewed or types the task they have in mind. Deterministic, no LLM.
+// Legacy Layer C helper for the former opening ask_user_questions card. Kept for
+// unit coverage of opening-question.json; create-issue no longer posts it.
 export async function buildOnboardingFirstTaskOpeningQuestion(): Promise<AskUserQuestionsPayload> {
   const raw = await loadFirstTaskAsset("opening-question.json");
   const file = openingQuestionFileSchema.parse(JSON.parse(raw));

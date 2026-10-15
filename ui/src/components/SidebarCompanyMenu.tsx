@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Building2,
   Check,
   ChevronsUpDown,
   GripVertical,
@@ -174,6 +175,10 @@ function BuiltinCompanyMenu({ open: controlledOpen, onOpenChange }: SidebarCompa
   );
   const sidebarCompanies = useMemo(
     () => companies.filter((company) => company.status !== "archived"),
+    [companies],
+  );
+  const hasArchivedCompanies = useMemo(
+    () => companies.some((company) => company.status === "archived"),
     [companies],
   );
   const { data: session } = useQuery({
@@ -353,7 +358,9 @@ function BuiltinCompanyMenu({ open: controlledOpen, onOpenChange }: SidebarCompa
                 </DropdownMenuItem>
               </>
             ) : (
-              <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                {hasArchivedCompanies ? "No active organizations" : "No organizations"}
+              </DropdownMenuItem>
             )
           ) : null}
         </div>
@@ -370,6 +377,23 @@ function BuiltinCompanyMenu({ open: controlledOpen, onOpenChange }: SidebarCompa
               <span className="min-w-0 flex-1 truncate">Create organization</span>
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem asChild disabled={isEditingOrder} className={ORGANIZATION_ACTION_CLASS}>
+            <Link
+              to="/companies"
+              onClick={(event) => {
+                if (isEditingOrder) {
+                  event.preventDefault();
+                  return;
+                }
+                closeNavigationChrome();
+              }}
+            >
+              <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                <Building2 className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">Manage organizations</span>
+            </Link>
+          </DropdownMenuItem>
           {showInvitePeople ? (
             <DropdownMenuItem asChild disabled={isEditingOrder} className={ORGANIZATION_ACTION_CLASS}>
               <Link

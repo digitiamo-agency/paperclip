@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToastActions } from "../context/ToastContext";
 import { useCloudInstance } from "../hooks/useCloudInstance";
 import { companiesApi } from "../api/companies";
 import { queryKeys } from "../lib/queryKeys";
@@ -10,6 +11,16 @@ import { formatCents, relativeTime } from "../lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +53,7 @@ export function Companies() {
   } = useCompany();
   const { openOnboarding } = useDialogActions();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const { pushToast } = useToastActions();
   const queryClient = useQueryClient();
   // A cloud stack holds exactly one company; creating another is a 403 floor
   // server-side, so the wizard entry point is hidden rather than dead-ending.
@@ -72,6 +84,18 @@ export function Companies() {
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.stats });
       setConfirmDeleteId(null);
+      pushToast({
+        tone: "success",
+        title: "Organization deleted",
+        body: "Agents, tasks, logs, and memberships for this organization were removed.",
+      });
+    },
+    onError: (error: unknown) => {
+      pushToast({
+        tone: "error",
+        title: "Could not delete organization",
+        body: error instanceof Error ? error.message : "Deletion failed.",
+      });
     },
   });
 
@@ -107,6 +131,11 @@ export function Companies() {
     setEditName("");
   }
 
+  const companyPendingDelete =
+    confirmDeleteId == null
+      ? null
+      : companies.find((company) => company.id === confirmDeleteId) ?? null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
@@ -127,7 +156,6 @@ export function Companies() {
         {companies.map((company) => {
           const selected = company.id === selectedCompanyId;
           const isEditing = editingId === company.id;
-          const isConfirmingDelete = confirmDeleteId === company.id;
           const companyStats = stats?.[company.id];
           const agentCount = companyStats?.agentCount ?? 0;
           const issueCount = companyStats?.issueCount ?? 0;
@@ -288,40 +316,51 @@ export function Companies() {
                   <span>Created {relativeTime(company.createdAt)}</span>
                 </div>
               </div>
-
-              {/* Delete confirmation */}
-              {isConfirmingDelete && (
-                <div
-                  className="mt-4 flex items-center justify-between bg-destructive/5 border border-destructive/20 rounded-md px-4 py-3"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <p className="text-sm text-destructive font-medium">
-                    Delete this organization and all its data? This cannot be undone.
-                  </p>
-                  <div className="flex items-center gap-2 ml-4 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setConfirmDeleteId(null)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(company.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      {deleteMutation.isPending ? "Deleting…" : "Delete"}
-                    </Button>
-                  </div>
-                </div>
-              )}
             </Card>
           );
         })}
       </div>
+
+      <AlertDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setConfirmDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete organization?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete{companyPendingDelete ? ` "${companyPendingDelete.name}"` : " this organization"}{" "}
+              and all agents, tasks, logs, and memberships? Everything will be
+              permanently removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteMutation.isError && (
+            <p className="text-sm text-destructive">
+              {deleteMutation.error instanceof Error
+                ? deleteMutation.error.message
+                : "Deletion failed."}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!confirmDeleteId || deleteMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!confirmDeleteId) return;
+                deleteMutation.mutate(confirmDeleteId);
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete organization"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

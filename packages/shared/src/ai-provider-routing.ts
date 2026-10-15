@@ -1,5 +1,52 @@
 import { z } from "zod";
 
+/** True for localhost / loopback hostnames used by local model servers. */
+export function isLoopbackHostname(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+}
+
+/**
+ * True for RFC1918 private IPv4 hosts (10/8, 172.16/12, 192.168/16).
+ * Used so LAN OpenAI-compatible servers (Ollama, internal gateways) can use HTTP.
+ * Link-local and metadata addresses are intentionally excluded.
+ */
+export function isPrivateIpv4Hostname(hostname: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) return false;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((n) => n > 255)) return false;
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+/**
+ * Endpoint URL rules for AI connection routing.
+ * HTTPS anywhere; HTTP only on loopback, or (for gateways) private LAN IPv4.
+ */
+export function isAllowedAiEndpointUrl(
+  raw: string,
+  options: { allowPrivateHttp?: boolean } = {},
+): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password || url.search || url.hash) return false;
+    const loopback = isLoopbackHostname(url.hostname);
+    if (url.protocol === "https:") return true;
+    if (url.protocol === "http:") {
+      if (loopback) return true;
+      if (options.allowPrivateHttp && isPrivateIpv4Hostname(url.hostname)) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /** Value-free routing stored on the connection, never supplied by an agent binding. */
 export const aiProviderRoutingSchema = z
   .object({
@@ -19,6 +66,14 @@ export const aiProviderRoutingSchema = z
           .object({
             id: z.string().trim().min(1).max(256),
             label: z.string().trim().max(160).optional(),
+            /** OpenCode `provider.models.*.limit` — context window and max output tokens. */
+            limit: z
+              .object({
+                context: z.number().int().positive().max(10_000_000),
+                output: z.number().int().positive().max(10_000_000),
+              })
+              .strict()
+              .optional(),
           })
           .strict(),
       )
@@ -52,25 +107,20 @@ export const aiProviderRoutingSchema = z
     if (route.auth === "api_key" && route.protocol !== "messages")
       invalid("API-key header authentication requires Anthropic Messages.");
     if (route.kind === "gateway" || route.kind === "local") {
-      try {
-        const url = new URL(route.baseUrl ?? "");
-        const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
-          url.hostname,
-        );
-        if (
-          url.username ||
-          url.password ||
-          url.search ||
-          url.hash ||
-          (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
-        )
-          throw new Error();
-        if (route.kind === "local" && !loopback)
-          invalid("A local endpoint must use localhost or a loopback address.");
-      } catch {
+      const allowPrivateHttp = route.kind === "gateway";
+      if (
+        !isAllowedAiEndpointUrl(route.baseUrl ?? "", { allowPrivateHttp })
+      ) {
         invalid(
-          "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Local endpoints may use HTTP.",
+          "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Loopback and private LAN endpoints may use HTTP.",
         );
+        return;
+      }
+      if (
+        route.kind === "local" &&
+        !isLoopbackHostname(new URL(route.baseUrl ?? "").hostname)
+      ) {
+        invalid("A local endpoint must use localhost or a loopback address.");
       }
     }
   });

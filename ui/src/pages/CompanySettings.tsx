@@ -16,6 +16,16 @@ import { companiesApi } from "../api/companies";
 import { assetsApi } from "../api/assets";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { SlidersHorizontal } from "lucide-react";
 import {
   InteractionGovernancePanel,
@@ -54,6 +64,7 @@ export function CompanySettings() {
   const [logoUrl, setLogoUrl] = useState("");
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [governance, setGovernance] = useState<InteractionResolverGovernance>({});
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
 
   // Sync local state from selected company
   useEffect(() => {
@@ -395,14 +406,7 @@ export function CompanySettings() {
                 archiveMutation.isPending ||
                 selectedCompany.status === "archived"
               }
-              onClick={() => {
-                if (!selectedCompanyId) return;
-                const confirmed = window.confirm(
-                  `Archive organization "${selectedCompany.name}"? It will be hidden from the sidebar.`
-                );
-                if (!confirmed) return;
-                archiveMutation.mutate({ companyId: selectedCompanyId });
-              }}
+              onClick={() => setArchiveConfirmOpen(true)}
             >
               {archiveMutation.isPending
                 ? "Archiving..."
@@ -420,6 +424,35 @@ export function CompanySettings() {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={archiveConfirmOpen} onOpenChange={setArchiveConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive organization?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Archive organization &quot;{selectedCompany.name}&quot;? It will be
+              hidden from the sidebar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiveMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!selectedCompanyId || archiveMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!selectedCompanyId) return;
+                archiveMutation.mutate({ companyId: selectedCompanyId });
+                setArchiveConfirmOpen(false);
+              }}
+            >
+              {archiveMutation.isPending ? "Archiving..." : "Archive organization"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

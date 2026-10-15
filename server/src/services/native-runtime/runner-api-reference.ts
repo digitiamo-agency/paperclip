@@ -87,7 +87,7 @@ export const runnerApiReference: Record<string, { section: string; description?:
   },
   "GET /api/issues/{}/heartbeat-context": {
     "section": "Issues (Tasks)",
-    "description": "Compact issue context including `currentExecutionWorkspace` when one is linked"
+    "description": "Compact issue context including `project.workspaces`, `mentionedProjects[].workspaces` (Source repos from issue project + project:// mentions in title/description/comments), and `currentExecutionWorkspace` when linked"
   },
   "GET /api/issues/{}/diagnostics/blockers": {
     "section": "Issues (Tasks)",
@@ -547,7 +547,7 @@ export const runnerApiReference: Record<string, { section: string; description?:
   },
   "GET /api/projects/{}/workspaces": {
     "section": "Companies, Projects, Goals",
-    "description": "List project workspaces"
+    "description": "List project source repositories (workspaces). Prefer this or heartbeat-context workspaces over asking the board for git URLs."
   },
   "POST /api/projects/{}/workspaces": {
     "section": "Companies, Projects, Goals",

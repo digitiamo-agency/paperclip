@@ -496,6 +496,7 @@ export function parseChatProviderLifecycle(
     case "speko":
       return []; // Voice lifecycle is reconciled against persisted sessions.
     case "imessage-photon": return []; // Authenticated gRPC events own lifecycle.
+    case "whatsapp-web": return []; // Local paired session owns lifecycle.
     case "agentmail": return [];
     case "slack":
       return parseSlackLifecycle(input);

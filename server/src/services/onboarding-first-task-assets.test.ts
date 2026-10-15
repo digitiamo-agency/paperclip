@@ -38,8 +38,17 @@ describe("renderOnboardingFirstTaskGreeting", () => {
   it("renders the board-approved greeting with the agent name", async () => {
     const greeting = await renderOnboardingFirstTaskGreeting({ agentName: "Ada" });
     expect(greeting).toContain("Welcome to Paperclip! I'm Ada, your first agent teammate.");
-    // The "what would you like to do" question moved onto the opening card.
     expect(greeting).not.toContain("What would you like to do?");
+    expect(greeting).toContain("Tell me what you'd like to work on");
+  });
+
+  it("renders the Italian greeting when dialogue language is it", async () => {
+    const greeting = await renderOnboardingFirstTaskGreeting({
+      agentName: "Ada",
+      dialogueLanguage: "it",
+    });
+    expect(greeting).toContain("Benvenuto in Paperclip! Sono Ada, il tuo primo agente.");
+    expect(greeting).toContain("Dimmi su cosa vorresti lavorare");
   });
 });
 

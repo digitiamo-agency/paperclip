@@ -2,7 +2,14 @@ import type { Db } from "@paperclipai/db";
 import type { AdapterExecutionTarget } from "@paperclipai/adapter-utils/execution-target";
 import type { AdapterEnvironmentCheck } from "@paperclipai/adapter-utils";
 import { parseObject } from "@paperclipai/adapter-utils/server-utils";
-import { aiRoutingHarness, ADAPTER_AUTH_MISSING_CHECK_CODE, AI_CONNECTION_CAPABILITIES, type AiConnectionBinding } from "@paperclipai/shared";
+import {
+  aiRoutingHarness,
+  ADAPTER_AUTH_MISSING_CHECK_CODE,
+  AI_CONNECTION_CAPABILITIES,
+  type AiConnectionBinding,
+  type AiProviderRouting,
+} from "@paperclipai/shared";
+import type { AdapterEnvironmentTestResult } from "@paperclipai/adapter-utils";
 import { requireServerAdapter } from "../adapters/index.js";
 import { forbidden, HttpError, unprocessable } from "../errors.js";
 import { instanceSettingsService } from "./instance-settings.js";
@@ -15,6 +22,11 @@ import { validateAiApiKey } from "./ai-api-key-test.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
 const asRecord = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+/** Strip OpenCode transport prefixes so catalog IDs compare equal to configured models. */
+function bareConnectionModelId(model: string): string {
+  return model.trim().replace(/^(?:paperclip|openrouter)\//, "");
+}
 export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: PluginWorkerManager) {
   const instanceSettings = instanceSettingsService(db);
   const environmentsSvc = environmentService(db);
@@ -464,8 +476,53 @@ export function agentEnvironmentTestService(db: Db, pluginWorkerManager?: Plugin
     });
   }
 
+  /**
+   * Fail before the 60s OpenCode hello probe when the configured model is not
+   * in the connection's live `/models` catalog (common with gateway allowlists
+   * that differ across hosts, e.g. Galene/LLM on ai01 vs Embedding-only on ai02).
+   */
+  async function assertGatewayModelInCatalog(
+    adapterType: string,
+    context: Parameters<ReturnType<typeof requireServerAdapter>["testEnvironment"]>[0],
+    managed: Awaited<ReturnType<typeof prepareManagedAiRuntime>>,
+  ): Promise<AdapterEnvironmentTestResult | null> {
+    const routing = asRecord(context.config)?.managedAiRouting as AiProviderRouting | undefined;
+    if (!routing || (routing.kind !== "gateway" && routing.kind !== "local")) return null;
+    const userId = managed.attribution.responsibleUserId;
+    if (!userId) return null;
+    const rawModel = typeof context.config.model === "string" ? context.config.model.trim() : "";
+    const bare = bareConnectionModelId(rawModel);
+    if (!bare) return null;
+    try {
+      const catalog = await aiConnectionService(db).listModels(
+        context.companyId,
+        userId,
+        managed.attribution.connectionId,
+        managed.attribution.grantId,
+      );
+      if (catalog.length === 0) return null;
+      if (catalog.some((entry) => entry.id === bare || entry.id === rawModel)) return null;
+      return {
+        adapterType,
+        status: "fail",
+        checks: [{
+          code: "ai_connection_model_unavailable",
+          level: "error",
+          message: `Configured model "${bare}" is not available on ${managed.accountName}.`,
+          hint: `This connection's /models catalog lists: ${catalog.map((entry) => entry.id).join(", ")}. Choose one of those models, or switch to a connection that serves "${bare}".`,
+        }],
+        testedAt: new Date().toISOString(),
+      };
+    } catch {
+      // Catalog probe is best-effort; fall through to the hello probe.
+      return null;
+    }
+  }
+
   async function testManagedEnvironment(adapterType: string, context: Parameters<ReturnType<typeof requireServerAdapter>["testEnvironment"]>[0], binding: AiConnectionBinding, managed: Awaited<ReturnType<typeof prepareManagedAiRuntime>>, agentId?: string) {
     const startedAt = new Date();
+    const unavailable = await assertGatewayModelInCatalog(adapterType, context, managed);
+    if (unavailable) return unavailable;
     const result = await probeManagedEnvironment(adapterType, context, binding);
     // A provider rejection invalidates the tested credential generation. A
     // missing CLI, unavailable environment, or other runtime error does not.

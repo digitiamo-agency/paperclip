@@ -12,7 +12,7 @@ The text for a new organization's first task lives in `server/src/onboarding-ass
 | `greeting.md` | The welcome the user sees. |
 | `brief.md` | The hidden `/first-task` skill invocation. Contains `{{proposalMode}}`. |
 | `skills/first-task/SKILL.md` | The first-task instructions, including both proposal modes. |
-| `opening-question.json` | The opening card: its prompt and two options. |
+| `opening-question.json` | Legacy opening-card wording (no longer posted at create time). |
 | `chief-of-staff/AGENTS.md` | The first agent's chief-of-staff persona. |
 | `README.md` | A maintainer reference for the files, placeholders, toggle, and update behavior. |
 
@@ -20,13 +20,12 @@ The templates support `{{agentName}}`, `{{organizationName}}`, and `{{proposalMo
 
 ## How the first-task flow works
 
-The server posts the greeting and an opening card with two options. Nothing runs until the user answers the card or writes a message.
+The server posts the greeting only. Nothing runs until the user writes a message.
 
 The first agent receives the `first-task` skill automatically. The first task's hidden description tells it to read and follow that skill; the user does not need to type `/first-task`. The skill also applies to later replies on that onboarding task, but not to the agent's other tasks.
 
-- **Interview me:** the agent asks 3–4 questions in one card, then proposes a plan and a team.
-- **I have a task in mind:** the typed text is the task. When it is clear enough, the agent proposes right away. Otherwise it asks 2–3 clarifying questions first.
-- A plain message instead of an answer counts as a task.
+- If the user asks to be interviewed or wants a plan and team, the agent asks 3–4 questions in one card, then proposes a plan and a team.
+- Otherwise the typed text is the task. When it is clear enough, the agent proposes right away. Otherwise it asks 2–3 clarifying questions first.
 
 The agent may create hires or tasks only after the user accepts a confirmation or checkbox card.
 

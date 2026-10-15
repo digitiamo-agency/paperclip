@@ -175,7 +175,7 @@ describeEmbeddedPostgres("issue create onboarding first-task routes", () => {
     expect(comments[0]).toMatchObject({ authorType: "agent", authorAgentId: agentId });
   });
 
-  it("seeds the two-option opening question card as the assignee on the first task", async () => {
+  it("does not seed an opening question card on the first task", async () => {
     const companyId = await seedCompany();
     const agentId = await seedAgent(companyId);
     const app = createApp();
@@ -189,34 +189,15 @@ describeEmbeddedPostgres("issue create onboarding first-task routes", () => {
       .select()
       .from(issueThreadInteractions)
       .where(eq(issueThreadInteractions.issueId, created.body.id));
-    expect(interactions).toHaveLength(1);
-    expect(interactions[0]).toMatchObject({
-      kind: "ask_user_questions",
-      status: "pending",
-      createdByAgentId: agentId,
-      createdByUserId: null,
-      continuationPolicy: "wake_assignee",
-    });
-    const payload = interactions[0].payload as {
-      supersedeOnUserComment?: boolean;
-      questions: Array<{ selectionMode: string; options: Array<{ id: string; label: string; freeText?: boolean }> }>;
-    };
-    expect(payload.supersedeOnUserComment).toBe(true);
-    expect(payload.questions).toHaveLength(1);
-    expect(payload.questions[0].selectionMode).toBe("single");
-    expect(payload.questions[0].options.map((option) => option.id)).toEqual(["interview", "task"]);
-    expect(payload.questions[0].options[0].label).toBe(
-      "Interview me and propose a plan and an agent team to execute it.",
-    );
-    expect(payload.questions[0].options[1]).toMatchObject({ label: "I have a task in mind", freeText: true });
+    expect(interactions).toHaveLength(0);
 
-    // The seeded card is read-only for the thread until the user answers: it
-    // must not have queued a run by itself.
+    // Greeting alone must not queue a run; the user's first comment wakes the
+    // assignee through the normal comment path.
     await drainHeartbeatRunsToQuiescence(db, heartbeatService(db));
     expect(mockAdapterExecute).not.toHaveBeenCalled();
   });
 
-  it("does not seed the opening card on an unassigned onboarding first task", async () => {
+  it("does not seed thread interactions on an unassigned onboarding first task", async () => {
     const companyId = await seedCompany();
     const app = createApp();
 

@@ -13,25 +13,18 @@ inventory and agent skill assignment flow.
 | File | Layer | What it is |
 | --- | --- | --- |
 | `greeting.md` | C | The deterministic greeting the server posts as the agent on the first task, before anything runs. No LLM. |
-| `opening-question.json` | C | The deterministic `ask_user_questions` card the server posts as the agent right after the greeting: "Interview me and propose a plan and an agent team to execute it." or "I have a task in mind" (free text). The option ids `interview` and `task` are fixed because the `first-task` skill refers to them; the `task` option must keep `freeText: true`. No LLM. |
+| `opening-question.json` | C (legacy) | Former opening `ask_user_questions` card. Kept on disk for tests/helpers; the create-issue path no longer posts it. Users type freely after the greeting. |
 | `brief.md` | A | The first task's hidden description: a short `/first-task` invocation and the `{{proposalMode}}` selected at creation. |
-| `skills/first-task/SKILL.md` | A (workflow) | The full first-task policy: opening-answer handling, interview, proposals, approval, and execution. Includes both single-task proposal modes. |
+| `skills/first-task/SKILL.md` | A (workflow) | The full first-task policy: first-message handling, interview-on-request, proposals, approval, and execution. Includes both single-task proposal modes. |
 | `chief-of-staff/AGENTS.md` | B | The chief-of-staff persona seeded over the first agent's entry instruction file at hire time. |
 | `README.md` | — | This file. |
 
-## The opening card
+## After hire
 
-`opening-question.json` is one single-select question. Its `prompt`, optional
-`helpText`, optional `submitLabel`, and the two options' `label`/`description`
-are free to edit. Picking an option only selects it; nothing happens until the
-user presses the primary button (`submitLabel`, "Continue"). That is how every
-question card behaves: Next / Submit answers, Skip (optional questions only),
-and Cancel, which returns the plain composer and leaves the card pending. The server validates the file when it creates a first task
-and refuses (logging a warning, the task is still created) if either option id
-changes or the `task` option loses `freeText: true`. When the user answers, the
-answer reaches the agent in its wake payload and the `first-task` skill tells it
-which path to take; when the user types a message instead, the card expires
-and the message wakes the agent as before.
+The server posts only the greeting. Nothing runs until the user writes a
+message; that comment wakes the assignee. The `first-task` skill tells the
+agent how to interpret the message (interview on request, otherwise treat it
+as the task).
 
 ## Placeholders
 
@@ -70,8 +63,8 @@ skill input. Native ACPX Claude invokes the assigned skill through its native
 on initial and resumed turns. Legacy adapters retain the brief's instruction
 to read the installed skill. None of these adds a separate model run. The skill
 applies only to the onboarding task that invokes it, not to every task assigned
-to that agent. The deterministic greeting,
-opening card, and initial no-wake behavior are unchanged.
+to that agent. The deterministic greeting and initial no-wake behavior are
+unchanged.
 
 ## Updates
 

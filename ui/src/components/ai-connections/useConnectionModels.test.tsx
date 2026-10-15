@@ -8,7 +8,7 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { agentsApi } from "@/api/agents";
 import { useConnectionModels } from "./useConnectionModels";
 
-vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn() } }));
+vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn(), listModels: vi.fn() } }));
 vi.mock("@/api/agents", () => ({ agentsApi: { adapterModels: vi.fn() } }));
 
 const binding: AiConnectionBinding = { provider: "openrouter", method: "api_key", mode: "shared", connectionId: "router", grantId: "grant" };
@@ -22,6 +22,10 @@ const catalog = [
   { id: "openrouter/anthropic/claude-sonnet-4.5", label: "Claude Sonnet" },
   { id: "openrouter/openrouter/auto", label: "Auto Router" },
 ];
+const gatewayModels = [
+  { id: "Galene/LLM", label: "Galene LLM" },
+  { id: "Galene/Embedding", label: "Galene Embedding" },
+];
 let root: Root;
 let client: QueryClient;
 let result: ReturnType<typeof useConnectionModels>;
@@ -30,6 +34,7 @@ let render: (value: AiConnectionBinding | undefined) => Promise<void>;
 beforeEach(() => {
   vi.mocked(agentsApi.adapterModels).mockResolvedValue(catalog);
   vi.mocked(aiConnectionsApi.list).mockResolvedValue({ currentUserId: "you", connections: [account], canManageConnections: true });
+  vi.mocked(aiConnectionsApi.listModels).mockResolvedValue({ models: gatewayModels });
 });
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -69,14 +74,74 @@ it("preserves an explicit connection model list instead of replacing it with the
   expect(agentsApi.adapterModels).not.toHaveBeenCalled();
 });
 
-it("does not reuse public OpenRouter models after switching to a custom gateway", async () => {
+it("loads a gateway connection's live /models catalog when its allowlist is empty", async () => {
   const gateway: AiManagedConnectionSummary = { ...account, id: "gateway", grantId: "gateway-grant", provider: "openai", routing: { kind: "gateway", protocol: "chat", auth: "bearer", baseUrl: "https://example.com/v1", models: [] } };
   await mount([account, gateway]);
   await vi.waitFor(() => expect(result?.models).toEqual(catalog));
   await render({ provider: "openai", method: "api_key", mode: "shared", connectionId: gateway.id, grantId: gateway.grantId });
-  expect(result?.models).toEqual([]);
+  await vi.waitFor(() => expect(result?.models).toEqual([
+    { id: "paperclip/Galene/LLM", label: "Galene LLM" },
+    { id: "paperclip/Galene/Embedding", label: "Galene Embedding" },
+  ]));
+  expect(aiConnectionsApi.listModels).toHaveBeenCalledWith("company", "gateway", "gateway-grant");
+  expect(agentsApi.adapterModels).toHaveBeenCalledTimes(1);
   expect(result?.resolveModel("private-model")).toBe("paperclip/private-model");
-  expect(result?.refreshModels).toBeUndefined();
+  expect(result?.refreshModels).toBeTypeOf("function");
+});
+
+it("prefers the live gateway catalog over a stored allowlist", async () => {
+  const gateway: AiManagedConnectionSummary = {
+    ...account,
+    id: "gateway",
+    grantId: "gateway-grant",
+    provider: "openai",
+    routing: {
+      kind: "gateway",
+      protocol: "chat",
+      auth: "bearer",
+      baseUrl: "https://example.com/v1",
+      models: [{ id: "approved/model", label: "Approved" }],
+    },
+  };
+  await mount([gateway], "opencode_local", {
+    provider: "openai",
+    method: "api_key",
+    mode: "shared",
+    connectionId: gateway.id,
+    grantId: gateway.grantId,
+  });
+  expect(result?.models).toEqual([{ id: "paperclip/approved/model", label: "Approved" }]);
+  await vi.waitFor(() => expect(result?.models).toEqual([
+    { id: "paperclip/Galene/LLM", label: "Galene LLM" },
+    { id: "paperclip/Galene/Embedding", label: "Galene Embedding" },
+  ]));
+  expect(aiConnectionsApi.listModels).toHaveBeenCalledWith("company", "gateway", "gateway-grant");
+});
+
+it("falls back to the stored gateway allowlist when the live catalog fails", async () => {
+  vi.mocked(aiConnectionsApi.listModels).mockRejectedValueOnce(new Error("Gateway unreachable"));
+  const gateway: AiManagedConnectionSummary = {
+    ...account,
+    id: "gateway",
+    grantId: "gateway-grant",
+    provider: "openai",
+    routing: {
+      kind: "gateway",
+      protocol: "chat",
+      auth: "bearer",
+      baseUrl: "https://example.com/v1",
+      models: [{ id: "approved/model", label: "Approved" }],
+    },
+  };
+  await mount([gateway], "opencode_local", {
+    provider: "openai",
+    method: "api_key",
+    mode: "shared",
+    connectionId: gateway.id,
+    grantId: gateway.grantId,
+  });
+  await vi.waitFor(() => expect(result?.models).toEqual([{ id: "paperclip/approved/model", label: "Approved" }]));
+  expect(result?.error).toBeNull();
 });
 
 it("leaves native model discovery alone", async () => {

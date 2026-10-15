@@ -414,6 +414,16 @@ if [[ -z "${PAPERCLIP_API_URL:-}" || -z "${PAPERCLIP_API_KEY:-}" || -z "${PAPERC
   exit 1
 fi
 
+# Agents sometimes invent ${PAPERCLIP_API_URL:-https://app.paperclip.ai}. Refuse SaaS hosts.
+_paperclip_api_url_lc="$(printf '%s\n' "$PAPERCLIP_API_URL" | tr '[:upper:]' '[:lower:]')"
+case "$_paperclip_api_url_lc" in
+  *://app.paperclip.ai*|*://app.paperclip.com*|*://app.paperclip.app*|*://app.paperclip.ing*)
+    printf 'Refusing PAPERCLIP_API_URL pointing at a public Paperclip SaaS host. Use the injected instance URL only.\n' >&2
+    exit 1
+    ;;
+esac
+unset _paperclip_api_url_lc
+
 if [[ -z "$issue_id" || -z "$company_id" ]]; then
   printf 'Missing issue or company id. Pass --issue-id/--company-id or set PAPERCLIP_TASK_ID/PAPERCLIP_COMPANY_ID.\n' >&2
   exit 1

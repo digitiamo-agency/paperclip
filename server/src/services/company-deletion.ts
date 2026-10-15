@@ -1,6 +1,7 @@
 import type { Db } from "@paperclipai/db";
 import { eq, inArray } from "drizzle-orm";
 import { createAgentLifecycle, scheduleAgentLifecycle } from "./agent-lifecycle.js";
+import { AgentLifecycleConflict } from "../modules/agent-lifecycle/index.js";
 import { agentLifecycleCompanyDeletion } from "../modules/agent-lifecycle/company-deletion.js";
 import {
   companies,
@@ -40,13 +41,62 @@ import {
   routines,
 } from "@paperclipai/db";
 
-export async function deleteCompany(db: Db, id: string) {
+const TERMINAL_LIFECYCLE_STATES = new Set(["terminated", "rejected"]);
+const DEFAULT_AGENT_TERMINATION_TIMEOUT_MS = 30_000;
+const AGENT_TERMINATION_POLL_MS = 100;
+
+export type DeleteCompanyOptions = {
+  /**
+   * How long to wait for every company agent to reach a purgeable lifecycle
+   * state before cascading organization data. Active runs can keep termination
+   * pending for a short window; one Delete click should wait that out.
+   */
+  agentTerminationTimeoutMs?: number;
+};
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function listAgentsPendingTermination(db: Db, companyId: string) {
+  const rows = await db
+    .select({ id: agents.id, lifecycleState: agents.lifecycleState })
+    .from(agents)
+    .where(eq(agents.companyId, companyId));
+  return rows.filter((row) => !TERMINAL_LIFECYCLE_STATES.has(row.lifecycleState));
+}
+
+/**
+ * Organization delete must remove agents, tasks, logs, and memberships in one
+ * cascade. Agent rows stay locked until lifecycle reaches terminated/rejected,
+ * so drive termination to completion (with a bounded wait) before the wipe.
+ */
+async function awaitCompanyAgentsTerminated(db: Db, companyId: string, timeoutMs: number) {
   const lifecycle = createAgentLifecycle(db);
-  const companyAgents = await db.select({ id: agents.id }).from(agents).where(eq(agents.companyId, id));
-  for (const agent of companyAgents) {
-    await lifecycle.terminateAgent(agent.id);
-    await scheduleAgentLifecycle(db, agent.id);
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  let pending = await listAgentsPendingTermination(db, companyId);
+
+  while (pending.length > 0) {
+    for (const agent of pending) {
+      await lifecycle.terminateAgent(agent.id);
+      await scheduleAgentLifecycle(db, agent.id);
+    }
+
+    pending = await listAgentsPendingTermination(db, companyId);
+    if (pending.length === 0) return;
+    if (Date.now() >= deadline) {
+      throw new AgentLifecycleConflict(
+        "Complete agent termination before deleting the organization. Active runs may still be stopping; retry shortly.",
+      );
+    }
+    await sleep(AGENT_TERMINATION_POLL_MS);
   }
+}
+
+export async function deleteCompany(db: Db, id: string, options: DeleteCompanyOptions = {}) {
+  const timeoutMs = options.agentTerminationTimeoutMs ?? DEFAULT_AGENT_TERMINATION_TIMEOUT_MS;
+  await awaitCompanyAgentsTerminated(db, id, timeoutMs);
+
   return db.transaction(async (tx) => {
         // Exclude accounting writers before taking child locks. KEY SHARE must
         // remain compatible: native writers can already hold a child row while

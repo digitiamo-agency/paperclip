@@ -200,8 +200,12 @@ vi.mock("../adapters/adapter-display-registry", () => ({
     // then sat in the "Advanced settings" disclosure and was reachable anyway;
     // with the step down to a tile row built from this flag, it made that row
     // empty in every test and hid the surface under it.
-    recommended: type === "claude_local" || type === "codex_local" || mockAdapterRegistry.list.some(entry => entry.type === type && entry.recommended),
-    label: type,
+    recommended:
+      type === "claude_local" ||
+      type === "codex_local" ||
+      type === "openai_compatible" ||
+      mockAdapterRegistry.list.some(entry => entry.type === type && entry.recommended),
+    label: type === "openai_compatible" ? "OpenAI Compatible" : type,
     description: "",
     icon: () => null,
   }),
@@ -2080,9 +2084,10 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       const labels = [...document.body.querySelectorAll("button[aria-checked]")].map(
         (tile) => tile.textContent ?? "",
       );
-      expect(labels.length, "both recommended sources should render").toBe(2);
+      expect(labels.length, "recommended sources should render").toBe(3);
       expect(labels.some((l) => l.includes("Claude"))).toBe(true);
-      expect(labels.some((l) => l.includes("OpenAI"))).toBe(true);
+      expect(labels.some((l) => l.includes("OpenAI Compatible"))).toBe(true);
+      expect(labels.some((l) => l.includes("OpenAI") && !l.includes("Compatible"))).toBe(true);
       // The negative half is the one that fails on the unwired version: the
       // registry label is the adapter type, and it must not reach the tile.
       expect(labels.join(" ")).not.toContain("claude_local");
@@ -2133,32 +2138,61 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       await act(async () => root.unmount());
     });
 
-    it("will not advance on a saved adapter the row does not show", async () => {
-      // The other shape of the same defect, and the one the snap cannot cover.
-      //
-      // The tile row is `recommendedAdapters`; the snap's idea of "visible" is
-      // recommended *plus* the advanced list. An adapter in the second but not
-      // the first — a saved `opencode_local`, say — therefore satisfies the
-      // snap, which leaves it alone, while the row it is supposed to be chosen
-      // in never shows it. Nothing is highlighted, the canvas is shut, and with
-      // the gate on `sourcePicked` the CTA was live: one press hires against an
-      // adapter the customer has not seen on this screen.
+    it("opens Show more when a saved adapter lives in the advanced list", async () => {
+      // A draft can name an adapter that is not on the recommended row
+      // (`opencode_local`). The snap still treats it as visible; without
+      // auto-expanding "Show more" the tile would stay off-screen even though
+      // the draft still holds that type for the eventual hire.
       mockAdapterRegistry.list = [{ type: "claude_local" }, { type: "opencode_local" }];
       const { root } = await openStep4({ adapterType: "opencode_local" });
 
       const tiles = [...document.body.querySelectorAll("button[aria-checked]")];
       expect(
+        tiles.some((t) => (t.textContent ?? "").includes("OpenCode")),
+        "the advanced source must appear once the draft names it",
+      ).toBe(true);
+      // Arrival never restores a pick — the customer still has to answer the
+      // row on this visit — but the source they left on must be offerable.
+      expect(
         tiles.some((t) => t.getAttribute("aria-checked") === "true"),
-        "the saved adapter is not in this row, so nothing should read as chosen",
+        "no tile should read as chosen until the row is answered",
       ).toBe(false);
 
-      const cta = [...document.body.querySelectorAll("button")].find(
-        (b) => isArcPrimary(b.textContent?.trim() ?? ""),
+      await act(async () => root.unmount());
+    });
+
+    it("offers additional adapters behind Show more", async () => {
+      mockAdapterRegistry.list = [
+        { type: "claude_local" },
+        { type: "codex_local" },
+        { type: "opencode_local" },
+        { type: "cursor" },
+      ];
+      const { root } = await openStep4({ adapterType: "claude_local" });
+
+      const before = [...document.body.querySelectorAll("button[aria-checked]")].map(
+        (tile) => tile.textContent ?? "",
       );
-      expect(
-        cta!.hasAttribute("disabled"),
-        "Connect must not hire an adapter the row never offered",
-      ).toBe(true);
+      // Claude, OpenAI, and the injected OpenAI Compatible source.
+      expect(before.length).toBe(3);
+      expect(before.join(" ")).not.toContain("OpenCode");
+      expect(before.some((l) => l.includes("Cursor"))).toBe(false);
+
+      const showMore = [...document.body.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Show more adapters",
+      );
+      expect(showMore, "Show more adapters control").toBeTruthy();
+      await act(async () => {
+        showMore!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      for (let i = 0; i < 5; i++) await flushReact();
+
+      const after = [...document.body.querySelectorAll("button[aria-checked]")].map(
+        (tile) => tile.textContent ?? "",
+      );
+      expect(after.length).toBeGreaterThan(2);
+      expect(after.some((l) => l.includes("OpenCode"))).toBe(true);
+      expect(after.some((l) => l.includes("Cursor"))).toBe(true);
 
       await act(async () => root.unmount());
     });

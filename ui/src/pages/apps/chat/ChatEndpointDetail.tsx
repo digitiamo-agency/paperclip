@@ -14,6 +14,7 @@ import { GitHubBotManagement, GitHubReviews } from "./GitHubBotManagement";
 import { GitHubBotMention, GitHubAppIdentityActions } from "./GitHubAppIdentity";
 import { GitHubConnectionComplete, type GitHubConnectionCompleteLocationState } from "./GitHubConnectionComplete";
 import { EmailEndpointSettings } from "./EmailEndpointSetup";
+import { WhatsAppWebAutoReplySettings } from "./WhatsAppWebAutoReplySettings";
 import { EmailConnectionAccess } from "@/components/EmailConnectionAccess";
 import { emailApi } from "@/api/email";
 import { toolsApi } from "@/api/tools";
@@ -78,6 +79,7 @@ const providerNames: Record<ChatProvider, string> = {
   "microsoft-teams": "Microsoft Teams",
   telegram: "Telegram",
   "imessage-photon": "iMessage Photon",
+  "whatsapp-web": "WhatsApp Web",
 };
 
 const providerLifecycleGuidance: Record<
@@ -116,6 +118,12 @@ const providerLifecycleGuidance: Record<
   "imessage-photon": {
     reconnect: "Reconnect verifies the same Photon project and line allocation, then recovers eligible missed messages.",
     remove: "Disconnect archives this channel and removes its saved secret. Your Photon project, number, subscription, and Messages history remain in Photon.",
+  },
+  "whatsapp-web": {
+    reconnect:
+      "Reconnect restarts the local WhatsApp Web session for this same paired account. Scan the QR code again if the session expired.",
+    remove:
+      "Paperclip archives the endpoint and stops the local Chromium session. Your WhatsApp account and chat history remain on your phone.",
   },
   telegram: {
     reconnect:
@@ -486,6 +494,9 @@ function Settings({
   return (
     <section className="max-w-3xl space-y-7">
       {endpoint.provider === "imessage-photon" && <p className="text-sm text-muted-foreground">{endpoint.photonAllocation === "shared" ? "Shared Photon project · direct messages only. Enroll senders in Photon and link their Messages identities in Access. Groups cannot be enabled." : "Enable each group individually. Agent replies are visible to everyone in that group; only authorized senders can start work."}</p>}
+      {endpoint.provider === "whatsapp-web" && (
+        <WhatsAppWebAutoReplySettings endpoint={endpoint} />
+      )}
       {endpoint.provider === "telegram" && (
         <div className="space-y-2">
           <h2 className="text-lg font-semibold">Telegram group command</h2>

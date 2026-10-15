@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "slug": "whatsapp-web",
+  "name": "WhatsApp Web",
+  "description": "Let people start and continue Paperclip work with an agent from WhatsApp by pairing a phone through WhatsApp Web.",
+  "categories": [
+    "communication"
+  ],
+  "featured": false,
+  "branding": {
+    "logoUrl": "/brands/apps/whatsapp-web.svg"
+  },
+  "urlPatterns": [
+    "https://web.whatsapp.com/*",
+    "https://whatsapp.com/*"
+  ],
+  "methods": [
+    {
+      "key": "chat-agent",
+      "label": "Chat with an agent",
+      "purpose": "channel",
+      "provider": "whatsapp-web",
+      "transport": "chat_sdk",
+      "auth": "none",
+      "ownershipModes": [
+        "customer"
+      ],
+      "whenToUse": "Let people in WhatsApp start and continue work with one Paperclip agent after pairing a phone with WhatsApp Web.",
+      "credentialFields": [],
+      "guidanceMd": "Pair one WhatsApp account by scanning a QR code in Paperclip. This uses the unofficial WhatsApp Web client (whatsapp-web.js) with a local Chromium session. No public webhook URL is required. Self-host with Chromium available; multi-replica cloud session sharing is not supported in V1. WhatsApp may restrict unofficial clients.",
+      "consoleLinks": {
+        "docs": "https://docs.wwebjs.dev/"
+      },
+      "riskTier": "S3",
+      "requiredResourceFilters": [
+        "direct_message"
+      ]
+    }
+  ]
+}

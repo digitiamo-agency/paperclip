@@ -14,9 +14,7 @@ describe("renderOnboardingGreeting", () => {
     // No goal quote and no "give me one moment" — the agent is not about to run.
     expect(greeting).not.toContain("aiming for");
     expect(greeting).not.toContain("one moment");
-    // The "what would you like to do" ask moved to the opening card; the
-    // greeting only points at it.
-    expect(greeting).toContain("Pick how you'd like to start");
+    expect(greeting).toContain("Tell me what you'd like to work on");
   });
 
   it("drops the name gracefully when no agent name is set", async () => {
@@ -35,5 +33,15 @@ describe("renderOnboardingGreeting", () => {
     const greeting = await renderOnboardingGreeting({ agentName: "   " });
 
     expect(greeting).toContain("I'm your first agent teammate.");
+  });
+
+  it("renders the Italian greeting when dialogue language is it", async () => {
+    const greeting = await renderOnboardingGreeting({
+      agentName: "Nova",
+      dialogueLanguage: "it",
+    });
+
+    expect(greeting).toContain("Benvenuto in Paperclip! Sono Nova, il tuo primo agente.");
+    expect(greeting).toContain("Dimmi su cosa vorresti lavorare");
   });
 });

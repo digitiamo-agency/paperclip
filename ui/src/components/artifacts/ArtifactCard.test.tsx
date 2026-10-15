@@ -65,6 +65,21 @@ describe("ArtifactCard", () => {
     expect(markup).not.toContain("Edited ");
   });
 
+  it("keeps open/download anchors as siblings of the issue link (no nested <a>)", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ArtifactCard artifact={makeArtifact()} />);
+    const anchors = Array.from(container.querySelectorAll("a"));
+    expect(anchors).toHaveLength(3);
+    expect(anchors[0]?.getAttribute("href")).toBe("/issues/PAP-10306#attachment-art-1");
+    expect(anchors[0]?.querySelector("a")).toBeNull();
+    expect(anchors.some((anchor) => Boolean(anchor.querySelector("a")))).toBe(false);
+    expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
+      "/issues/PAP-10306#attachment-art-1",
+      "/files/art-1.png",
+      "/files/art-1.png?download=1",
+    ]);
+  });
+
   it("renders only the artifact subject and absolute metadata under the preview", () => {
     const markup = renderToStaticMarkup(
       <ArtifactCard

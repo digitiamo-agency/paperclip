@@ -132,7 +132,6 @@ describe("CompanySettings archive departure", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     mockCompaniesApi.archive.mockResolvedValue({ id: ARCHIVING_COMPANY.id, status: "archived" });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     observedPath = "";
   });
 
@@ -176,10 +175,21 @@ describe("CompanySettings archive departure", () => {
     });
   }
 
+  function confirmArchiveInDialog() {
+    const action = Array.from(
+      document.querySelectorAll('[data-slot="alert-dialog-action"]'),
+    ).find((element) => element.textContent?.includes("Archive organization"));
+    expect(action).toBeDefined();
+    flushSync(() => {
+      action!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
   it("switches to another active company with a toast", async () => {
     companyState.companies = [ARCHIVING_COMPANY, SIBLING_COMPANY];
     const root = render(SELF_HOSTED_HEALTH);
     clickArchive();
+    confirmArchiveInDialog();
 
     await waitForAssertion(() => {
       expect(mockCompaniesApi.archive).toHaveBeenCalledWith(ARCHIVING_COMPANY.id);
@@ -200,6 +210,7 @@ describe("CompanySettings archive departure", () => {
     companyState.companies = [ARCHIVING_COMPANY];
     const root = render(CLOUD_HEALTH);
     clickArchive();
+    confirmArchiveInDialog();
 
     await waitForAssertion(() => {
       expect(mockNavigateTopLevel).toHaveBeenCalledWith(
@@ -217,6 +228,7 @@ describe("CompanySettings archive departure", () => {
     companyState.companies = [ARCHIVING_COMPANY];
     const root = render(SELF_HOSTED_HEALTH);
     clickArchive();
+    confirmArchiveInDialog();
 
     await waitForAssertion(() => {
       expect(observedPath).toBe("/OLD/companies");

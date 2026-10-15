@@ -435,6 +435,12 @@
       "localAsset": "/brands/apps/telegram.svg"
     },
     {
+      "slug": "whatsapp-web",
+      "provider": "WhatsApp Web",
+      "catalogVisible": true,
+      "localAsset": "/brands/apps/whatsapp-web.svg"
+    },
+    {
       "slug": "ticket-tailor",
       "provider": "Ticket Tailor",
       "catalogVisible": false,

@@ -570,6 +570,7 @@ export function Browse({ renderAccountDetails = (connection) => connection.conne
     const nativeChatApps = [
       { slug: "agentmail", name: "AgentMail", description: "Give agents email inboxes and handle each conversation as a task." },
       { slug: "imessage-photon", name: "iMessage Photon", description: "Message agents and share photos from Apple Messages with a dedicated Photon number." },
+      { slug: "whatsapp-web", name: "WhatsApp Web", description: "Pair a WhatsApp account through WhatsApp Web and chat with an agent in direct messages." },
       {
         slug: "slack",
         name: "Slack",
@@ -711,6 +712,7 @@ export function Browse({ renderAccountDetails = (connection) => connection.conne
           "microsoft-teams": "Microsoft Teams",
           telegram: "Telegram",
           "imessage-photon": "iMessage Photon",
+          "whatsapp-web": "WhatsApp Web",
   agentmail: "AgentMail",
         } as const;
         target = {

@@ -329,6 +329,18 @@ export function chatChannelRoutes(db: Db, options: ChatChannelRouteOptions) {
     res.json(await service.inspectPhoton(endpointId(req), req.body));
   });
 
+  router.post("/chat-endpoints/:endpointId/whatsapp-web/pairing/start", async (req, res) => {
+    if (!(await assertEndpointManagementAccess(req, res))) return;
+    res.set("Cache-Control", "no-store");
+    res.json(await service.startWhatsAppWebPairing(endpointId(req)));
+  });
+
+  router.get("/chat-endpoints/:endpointId/whatsapp-web/pairing", async (req, res) => {
+    if (!(await assertEndpointManagementAccess(req, res))) return;
+    res.set("Cache-Control", "no-store");
+    res.json(await service.getWhatsAppWebPairingStatus(endpointId(req)));
+  });
+
   router.post(
     "/chat-endpoints/:endpointId/setup",
     validate(configureChatEndpointSchema),

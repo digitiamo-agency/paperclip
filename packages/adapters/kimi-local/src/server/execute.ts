@@ -164,6 +164,7 @@ function renderApiAccessNote(env: Record<string, string>): string {
   return [
     "Paperclip API access note:",
     "Use shell commands with curl to make Paperclip API requests when needed.",
+    "Expand only \"$PAPERCLIP_API_URL\" — never invent hosts and never use ${PAPERCLIP_API_URL:-...} (including app.paperclip.ai).",
     "Include X-Paperclip-Run-Id on mutating requests.",
     "",
     "",

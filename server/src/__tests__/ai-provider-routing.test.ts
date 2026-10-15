@@ -22,6 +22,16 @@ describe("provider routing", () => {
       }).success,
     ).toBe(false);
   });
+  it("allows HTTP OpenAI-compatible gateways on private LAN addresses", () => {
+    expect(
+      aiProviderRoutingSchema.safeParse({
+        kind: "gateway",
+        protocol: "chat",
+        auth: "none",
+        baseUrl: "http://192.168.30.60:11434/v1",
+      }).success,
+    ).toBe(true);
+  });
   it("requires exactly the selected credential and disallows routed subscriptions", () => {
     const input = {
       provider: "openai",
@@ -126,6 +136,33 @@ describe("provider routing", () => {
     expect(opencode.config.model).toBe(
       "openrouter/anthropic/claude-sonnet-4.6",
     );
+  });
+  it("projects OpenCode gateway model limits into OPENCODE_CONFIG_CONTENT", () => {
+    const routing = aiProviderRoutingSchema.parse({
+      kind: "gateway",
+      protocol: "chat",
+      baseUrl: "https://gateway.example/v1",
+      models: [
+        {
+          id: "Galene/LLM",
+          label: "Galene",
+          limit: { context: 128000, output: 16384 },
+        },
+      ],
+    });
+    const projected = managedProviderRouting(
+      routing,
+      "opencode_local",
+      "fixture-secret",
+      "Galene/LLM",
+    );
+    expect(projected.config.model).toBe("paperclip/Galene/LLM");
+    const content = JSON.parse(projected.env.OPENCODE_CONFIG_CONTENT!);
+    expect(content.provider.paperclip.models["Galene/LLM"]).toEqual({
+      name: "Galene",
+      limit: { context: 128000, output: 16384 },
+    });
+    expect(content.provider.paperclip.npm).toBe("@ai-sdk/openai-compatible");
   });
   it("projects only a Bedrock API key and rejects general AWS access keys", () => {
     const routing = aiProviderRoutingSchema.parse({

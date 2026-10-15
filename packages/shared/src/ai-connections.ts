@@ -218,6 +218,17 @@ export const createAiConnectionSchema = z
   });
 export type CreateAiConnection = z.infer<typeof createAiConnectionSchema>;
 
+/** Probe an OpenAI-compatible `/models` catalog before saving a gateway connection. */
+export const discoverOpenAiCompatibleModelsSchema = z
+  .object({
+    baseUrl: z.string().trim().min(1).max(2048),
+    apiKey: z.string().trim().max(32768).optional(),
+  })
+  .strict();
+export type DiscoverOpenAiCompatibleModels = z.infer<
+  typeof discoverOpenAiCompatibleModelsSchema
+>;
+
 export const aiConnectionLoginIntentSchema = z
   .object({
     provider: z.enum(["anthropic", "openai", "xai"]),

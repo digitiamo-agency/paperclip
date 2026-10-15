@@ -184,11 +184,20 @@ export function ModelSourceTiles({
 
   const shown = collapsed ? sources.filter((source) => source.id === selectedId) : sources;
 
+  // More than two sources wraps on the two-up width token rather than
+  // squeezing every tile into one row — onboarding can open the advanced list
+  // without inventing a third layout.
+  const wrapRow = !collapsed && sources.length > 2;
+
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn("flex items-start gap-3", collapsed && "justify-center")}
+      className={cn(
+        "flex items-start gap-3",
+        collapsed && "justify-center",
+        wrapRow && "flex-wrap",
+      )}
       onKeyDown={(event) => {
         // Collapsed, the row is a statement rather than a choice; arrow keys
         // would move a selection that is no longer being asked for.
@@ -219,7 +228,7 @@ export function ModelSourceTiles({
             exit={{ opacity: 0, transition: SOURCE_EXIT_FADE }}
             className={cn(
               "flex min-w-0",
-              collapsed ? "w-(--sz-source-tile-two-up)" : "flex-1",
+              collapsed || wrapRow ? "w-(--sz-source-tile-two-up)" : "flex-1",
             )}
           >
             <ModelSourceTile

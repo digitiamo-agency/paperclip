@@ -21,7 +21,24 @@ export type {
 } from "@paperclipai/shared";
 
 export type ChatProvider =
-  "slack" | "github" | "discord" | "microsoft-teams" | "telegram" | "agentmail" | "imessage-photon" | "speko";
+  "slack" | "github" | "discord" | "microsoft-teams" | "telegram" | "agentmail" | "imessage-photon" | "whatsapp-web" | "speko";
+
+export interface WhatsAppWebPairingStatus {
+  phase:
+    | "idle"
+    | "starting"
+    | "pending_qr"
+    | "authenticated"
+    | "ready"
+    | "failed"
+    | "disconnected";
+  qr: string | null;
+  qrDataUrl: string | null;
+  wid: string | null;
+  pushName: string | null;
+  error: string | null;
+  updatedAt: string;
+}
 export type ChatEndpointStatus =
   | "draft"
   | "verifying"
@@ -117,6 +134,11 @@ export interface ChatEndpoint {
   botUsername?: string | null;
   botExternalId?: string | null;
   photonAllocation?: "dedicated" | "shared";
+  whatsappWebAutoReply?: {
+    mode: "none" | "all" | "allowlist" | "blocklist" | "new_only";
+    contacts: string[];
+    knownContacts: string[];
+  };
   allowDirectMessages?: boolean;
   requireAtMention?: boolean;
   allowGroupChats?: boolean;
@@ -224,6 +246,15 @@ export const chatEndpointsApi = {
     api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/slack/resume`, {}),
   inspectPhoton: (endpointId: string, input: { projectId: string; projectSecret: string }) =>
     api.post<PhotonProjectInspection>(`/chat-endpoints/${endpointId}/photon/inspect`, input),
+  startWhatsAppWebPairing: (endpointId: string) =>
+    api.post<WhatsAppWebPairingStatus>(
+      `/chat-endpoints/${endpointId}/whatsapp-web/pairing/start`,
+      {},
+    ),
+  getWhatsAppWebPairingStatus: (endpointId: string) =>
+    api.get<WhatsAppWebPairingStatus>(
+      `/chat-endpoints/${endpointId}/whatsapp-web/pairing`,
+    ),
   generateSetupSecret: (endpointId: string) =>
     api.post<ChatEndpointSetupSecret>(
       `/chat-endpoints/${endpointId}/setup-secret`,

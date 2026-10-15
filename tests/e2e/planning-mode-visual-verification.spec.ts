@@ -9,20 +9,11 @@ import {
 const AGENT_NAME = "CEO";
 const TASK_TITLE = "Paperclip onboarding";
 
-/** Wait for the saved question before checking its dismissed presentation. */
-async function expectOpeningQuestionDismissed(page: import("@playwright/test").Page) {
-  await expect(page.getByTestId("task-chat-unanswered-question")).toBeVisible({ timeout: 30_000 });
+/** First task lands with a free composer (no opening choice card). */
+async function expectFreeComposer(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("task-chat-composer-takeover")).toHaveCount(0);
   await expect(page.getByTestId("task-chat-pending-input-indicator")).toHaveCount(0);
   await expect(page.getByTestId("task-chat-composer-mode")).toBeVisible({ timeout: 30_000 });
-}
-
-/** The opening question arrives after the interactions fetch. Dismiss it once. */
-async function dismissOpeningCard(page: import("@playwright/test").Page) {
-  const takeover = page.getByTestId("task-chat-composer-takeover");
-  await expect(takeover).toBeVisible({ timeout: 30_000 });
-  await takeover.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expectOpeningQuestionDismissed(page);
 }
 
 test("captures planning mode UI for desktop and mobile", async ({ page }) => {
@@ -149,9 +140,7 @@ test("captures planning mode UI for desktop and mobile", async ({ page }) => {
   await setMode("planning");
 
   await page.goto(issuePath);
-  await dismissOpeningCard(page);
-  await page.reload();
-  await expectOpeningQuestionDismissed(page);
+  await expectFreeComposer(page);
   await expect(page.getByText("Plan mode").first()).toBeVisible();
   const desktopPlanningToggle = page.getByTestId("task-chat-composer-mode");
   await expect(desktopPlanningToggle).toBeVisible();
@@ -171,7 +160,7 @@ test("captures planning mode UI for desktop and mobile", async ({ page }) => {
   });
 
   await page.goto(issuePath);
-  await expectOpeningQuestionDismissed(page);
+  await expectFreeComposer(page);
   await page.getByTestId("task-chat-composer-mode").click();
   await expect(page.getByTestId("task-chat-composer-mode")).toHaveCount(0);
   await expect(page.getByTestId("task-chat-composer-add")).toBeVisible();
@@ -183,7 +172,7 @@ test("captures planning mode UI for desktop and mobile", async ({ page }) => {
   await setMode("planning");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(issuePath);
-  await expectOpeningQuestionDismissed(page);
+  await expectFreeComposer(page);
   await expect(page.getByText("Plan mode").first()).toBeVisible();
   const mobilePlanningToggle = page.getByTestId("task-chat-composer-mode");
   await expect(mobilePlanningToggle).toBeVisible();

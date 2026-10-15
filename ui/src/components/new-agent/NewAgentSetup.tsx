@@ -159,6 +159,22 @@ function Setup({
   const [connection, setConnection] = useState<ProviderConnection | null>(null);
   const aiBinding = runtimeAiBinding ?? connection?.aiConnection;
   const connectionModels = useConnectionModels(companyId, aiBinding, brandType);
+  // Drop a model left over from another connection once this connection's
+  // catalog loads. Once only — creatable custom IDs entered afterwards stay.
+  const clearedForeignModelRef = useRef<string | null>(null);
+  const connectionCatalogKey = aiBinding && connectionModels
+    ? (aiBinding.mode === "responsible_user" ? `ru:${aiBinding.provider}` : `${aiBinding.connectionId}:${aiBinding.grantId}`)
+    : null;
+  useEffect(() => {
+    if (!connectionCatalogKey || !connectionModels || connectionModels.isLoading) return;
+    if (!model || connectionModels.models.some((entry) => entry.id === model)) {
+      clearedForeignModelRef.current = connectionCatalogKey;
+      return;
+    }
+    if (clearedForeignModelRef.current === connectionCatalogKey) return;
+    clearedForeignModelRef.current = connectionCatalogKey;
+    setModel("");
+  }, [connectionCatalogKey, connectionModels, model]);
   const [repository, setRepository] = useState("");
   const [branch, setBranch] = useState("");
   const [createdInSession, setCreated] = useState<Agent | null>(null);
@@ -858,7 +874,12 @@ function Setup({
                         </>}
                         {!connectionAdapter && aiProviderForAdapter(brandType) && (
                           <AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding}
-                            onChange={binding => { binding.mode !== "router" && setRuntimeAiBinding(binding); resetTest(); }} />
+                            onChange={binding => {
+                              if (binding.mode === "router") return;
+                              setRuntimeAiBinding(binding);
+                              setModel("");
+                              resetTest();
+                            }} />
                         )}
                         {(connectionModels ? connectionModels.error : models.error) && <p role="alert" className="text-sm text-destructive">Could not load models. Retry or enter a model ID manually.</p>}
                         {((showModel && !usingKimiApi) ||

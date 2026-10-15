@@ -230,7 +230,12 @@ describe("IssueMonitorBanner / IssueMonitorComposerStrip rendering", () => {
     expect(container.textContent).toContain("Tasks with a selected account keep it while waiting.");
     expect(container.textContent).toContain("Work resumes when usage permits.");
     expect(container.textContent).not.toContain("Attempt 1");
-    expect(container.querySelector("button")).not.toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Retry now"),
+      ),
+    ).toBe(true);
+    expect(container.textContent).not.toContain("Check now");
     flushSync(() => root.unmount());
   });
 

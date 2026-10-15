@@ -1266,6 +1266,33 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     : eff("adapterConfig", "model", String(config.model ?? ""));
   const currentModelId = typeof currentModelValue === "string" ? currentModelValue : "";
 
+  // When a connection-scoped catalog first loads, drop a saved model that is
+  // not on this account so the dropdown does not promote it as a "current"
+  // orphan (e.g. Galene/LLM after switching to an Embedding-only host). Run
+  // once per connection so a later creatable custom ID is not cleared.
+  const connectionCatalogKey = (() => {
+    if (!connectionModels) return null;
+    const binding = aiConnectionBindingSchema.safeParse(
+      (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection
+        ?? runtimeConfig.aiConnection,
+    ).data;
+    if (!binding) return null;
+    return binding.mode === "responsible_user"
+      ? `ru:${binding.provider}`
+      : `${binding.connectionId}:${binding.grantId}`;
+  })();
+  const clearedForeignModelForConnectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isCreate || !connectionCatalogKey || !connectionModels || connectionModels.isLoading) return;
+    if (!currentModelId || connectionModels.models.some((model) => model.id === currentModelId)) {
+      clearedForeignModelForConnectionRef.current = connectionCatalogKey;
+      return;
+    }
+    if (clearedForeignModelForConnectionRef.current === connectionCatalogKey) return;
+    clearedForeignModelForConnectionRef.current = connectionCatalogKey;
+    mark("adapterConfig", "model", undefined);
+  }, [isCreate, connectionCatalogKey, connectionModels, currentModelId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleRefreshModels() {
     if (!selectedCompanyId) return;
     setRefreshingModels(true);
@@ -1688,7 +1715,11 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           {!isDotRunner && !isCreate && selectedCompanyId && <AiConnectionField companyId={selectedCompanyId} agentId={props.agent.id} agentName={props.agent.name} adapterType={aiRoutingHarness(adapterType, eff("adapterConfig", "provider", config.provider), eff("adapterConfig", "acpxAgent", config.acpxAgent))}
             routerAdapterType={adapterType} value={aiRuntimeConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data}
             model={String(eff("adapterConfig", "model", config.model) ?? "")} environmentId={currentDefaultEnvironmentId || undefined} legacy
-            onChange={binding => mark("runtime", "runtimeConfig", { ...runtimeConfig, aiConnection: binding })} />}
+            onChange={binding => {
+              mark("runtime", "runtimeConfig", { ...runtimeConfig, aiConnection: binding });
+              // The previous model may belong to another connection's catalog.
+              mark("adapterConfig", "model", undefined);
+            }} />}
 
           {showInlineAdapterTestEnvironmentFeedback && !props.compactTestFeedback && (testActionError || testEnvironment.error) && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">

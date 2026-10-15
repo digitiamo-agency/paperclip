@@ -8,6 +8,7 @@ import { SetupWizardFooter } from "@/components/SetupWizard";
 import { ChatSetupNavigation } from "@/components/chat/ChatSetupNavigation";
 import { SlackIdentityStep } from "./SlackIdentityStep";
 import { PhotonConnectStep } from "./PhotonConnectStep";
+import { WhatsAppWebPairStep } from "./WhatsAppWebPairStep";
 import { EmailEndpointSetup } from "./EmailEndpointSetup";
 import {
   useEffect,
@@ -59,6 +60,7 @@ const providerNames: Record<ChatProvider, string> = {
   "microsoft-teams": "Microsoft Teams",
   telegram: "Telegram",
   "imessage-photon": "iMessage Photon",
+  "whatsapp-web": "WhatsApp Web",
 };
 
 const knownProviders = new Set(Object.keys(providerNames));
@@ -660,11 +662,13 @@ function ChatSdkEndpointSetup() {
             onSaveExit={() => navigate("/apps")}
           />
         )}
-        {step !== 0 && !isSlack && <div className="flex justify-start">
-          <Button className="text-muted-foreground" variant="ghost" onClick={() => navigate("/apps")}>
-            Save &amp; exit
-          </Button>
-        </div>}
+        {step !== 0 && !isSlack && !(provider === "whatsapp-web" && step === 1) && (
+          <div className="flex justify-start">
+            <Button className="text-muted-foreground" variant="ghost" onClick={() => navigate("/apps")}>
+              Save &amp; exit
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -889,6 +893,21 @@ function ProviderConnectStep({
     2,
   );
   if (provider === "imessage-photon") return <PhotonConnectStep endpoint={endpoint} agentName={agentName} repairing={repairing} pending={pending} onAction={onAction} />;
+  if (provider === "whatsapp-web") {
+    return (
+      <WhatsAppWebPairStep
+        endpoint={endpoint}
+        agentName={agentName}
+        repairing={repairing}
+        pending={pending}
+        onAction={onAction}
+        onRefresh={async () => {
+          onEndpointSaved(await chatEndpointsApi.get(endpoint.id));
+        }}
+        onSaveExit={() => navigate("/apps")}
+      />
+    );
+  }
   if (provider === "discord") {
     const applicationId = credentials.applicationId?.trim() ?? "";
     const guildId = credentials.guildId?.trim() ?? "";
@@ -1766,7 +1785,9 @@ function TryStep({
     (identity) => identity.status !== "linked",
   );
   const freshConversationInstruction =
-    provider === "imessage-photon" ? "send a fresh message to your Photon number" : provider === "telegram"
+    provider === "imessage-photon" ? "send a fresh message to your Photon number" : provider === "whatsapp-web"
+      ? "send a fresh direct message to the paired WhatsApp account"
+      : provider === "telegram"
       ? "start a fresh conversation with /new and send the test message again"
       : provider === "github"
         ? "start a new issue or pull request conversation and mention the agent again"

@@ -168,7 +168,10 @@ const support = await getEmbeddedPostgresTestSupport();
     const [project] = await db.insert(projects).values({ companyId, name: "Keep until cleanup", leadAgentId: agent.id }).returning();
     await db.insert(issues).values({ companyId, projectId: project.id, title: "Keep this task", assigneeAgentId: agent.id });
     const pending = worker(async () => "pending");
-    await expect(deleteCompany(db, companyId)).rejects.toThrow("Complete termination");
+    // Zero timeout: one terminate+process attempt, then fail closed so company
+    // rows stay until agents actually finish termination.
+    await expect(deleteCompany(db, companyId, { agentTerminationTimeoutMs: 0 }))
+      .rejects.toThrow("Complete agent termination before deleting the organization");
     expect(await db.select().from(projects).where(eq(projects.id, project.id))).toHaveLength(1);
     expect(await db.select().from(issues).where(eq(issues.companyId, companyId))).toHaveLength(1);
     await pending.stop();

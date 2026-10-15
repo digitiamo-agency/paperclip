@@ -2325,6 +2325,13 @@
       "when": 1791720956054,
       "tag": "0333_flimsy_starfox",
       "breakpoints": true
+    },
+    {
+      "idx": 334,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0334_whatsapp_web_chat",
+      "breakpoints": true
     }
   ]
 }

@@ -47,6 +47,7 @@ function makeCompany(id: string): Company {
     id,
     name: "Paperclip",
     description: null,
+    dialogueLanguage: "en",
     status: "active",
     pauseReason: null,
     pausedAt: null,

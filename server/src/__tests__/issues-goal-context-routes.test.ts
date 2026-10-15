@@ -299,7 +299,7 @@ describe("issue goal context routes", () => {
     );
     expect(mockIssueService.findMentionedProjectIds).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
-      { includeCommentBodies: false },
+      { includeCommentBodies: true },
     );
     expect(mockGoalService.getDefaultCompanyGoal).not.toHaveBeenCalled();
   });
@@ -465,6 +465,188 @@ describe("issue goal context routes", () => {
     expect(res.body.taskQuestionContext).toEqual({
       questions: [], truncated: false, guidance: expect.stringContaining("Historical questions remain answerable"),
     });
+  });
+
+  it("surfaces source repos on heartbeat-context for the issue project and comment-mentioned projects", async () => {
+    const mentionedProjectId = "66666666-6666-4666-8666-666666666666";
+    mockIssueService.findMentionedProjectIds.mockResolvedValue([
+      legacyProjectLinkedIssue.projectId!,
+      mentionedProjectId,
+    ]);
+    mockProjectService.getById.mockResolvedValue({
+      id: legacyProjectLinkedIssue.projectId,
+      companyId: "company-1",
+      urlKey: "onboarding",
+      goalId: projectGoal.id,
+      goalIds: [projectGoal.id],
+      goals: [{ id: projectGoal.id, title: projectGoal.title }],
+      name: "Onboarding",
+      description: null,
+      status: "in_progress",
+      leadAgentId: null,
+      targetDate: null,
+      color: null,
+      pauseReason: null,
+      pausedAt: null,
+      executionWorkspacePolicy: null,
+      codebase: {
+        workspaceId: null,
+        repoUrl: null,
+        repoRef: null,
+        defaultRef: null,
+        repoName: null,
+        localFolder: null,
+        managedFolder: "/tmp/company-1/project-1",
+        effectiveLocalFolder: "/tmp/company-1/project-1",
+        origin: "managed_checkout",
+      },
+      workspaces: [],
+      primaryWorkspace: null,
+      archivedAt: null,
+      createdAt: new Date("2026-03-20T00:00:00Z"),
+      updatedAt: new Date("2026-03-20T00:00:00Z"),
+    });
+    mockProjectService.listByIds.mockResolvedValue([
+      {
+        id: mentionedProjectId,
+        companyId: "company-1",
+        urlKey: "h4h-2-0",
+        goalId: null,
+        goalIds: [],
+        goals: [],
+        name: "H4H 2.0",
+        description: null,
+        status: "planned",
+        leadAgentId: null,
+        targetDate: null,
+        color: null,
+        pauseReason: null,
+        pausedAt: null,
+        executionWorkspacePolicy: null,
+        codebase: {
+          workspaceId: "workspace-1",
+          repoUrl: "git@bitbucket.org:InfiniteArea/api-ambassador-test",
+          repoRef: "deploy/stage",
+          defaultRef: "deploy/stage",
+          repoName: null,
+          localFolder: null,
+          managedFolder: "/tmp/h4h",
+          effectiveLocalFolder: "/tmp/h4h",
+          origin: "managed_checkout",
+        },
+        workspaces: [
+          {
+            id: "workspace-1",
+            companyId: "company-1",
+            projectId: mentionedProjectId,
+            name: "InfiniteArea/api-ambassador-test",
+            sourceType: "git_repo",
+            cwd: null,
+            repoUrl: "git@bitbucket.org:InfiniteArea/api-ambassador-test",
+            repoRef: "deploy/stage",
+            defaultRef: "deploy/stage",
+            visibility: "default",
+            setupCommand: null,
+            cleanupCommand: null,
+            remoteProvider: null,
+            remoteWorkspaceRef: null,
+            sharedWorkspaceKey: null,
+            runtimeConfig: null,
+            isPrimary: true,
+            createdAt: new Date("2026-03-20T00:00:00Z"),
+            updatedAt: new Date("2026-03-20T00:00:00Z"),
+          },
+          {
+            id: "workspace-2",
+            companyId: "company-1",
+            projectId: mentionedProjectId,
+            name: "InfiniteArea/packages",
+            sourceType: "git_repo",
+            cwd: null,
+            repoUrl: "git@bitbucket.org:InfiniteArea/packages",
+            repoRef: "deploy/stage",
+            defaultRef: "deploy/stage",
+            visibility: "default",
+            setupCommand: null,
+            cleanupCommand: null,
+            remoteProvider: null,
+            remoteWorkspaceRef: null,
+            sharedWorkspaceKey: null,
+            runtimeConfig: null,
+            isPrimary: false,
+            createdAt: new Date("2026-03-20T00:00:00Z"),
+            updatedAt: new Date("2026-03-20T00:00:00Z"),
+          },
+        ],
+        primaryWorkspace: {
+          id: "workspace-1",
+          companyId: "company-1",
+          projectId: mentionedProjectId,
+          name: "InfiniteArea/api-ambassador-test",
+          sourceType: "git_repo",
+          cwd: null,
+          repoUrl: "git@bitbucket.org:InfiniteArea/api-ambassador-test",
+          repoRef: "deploy/stage",
+          defaultRef: "deploy/stage",
+          visibility: "default",
+          setupCommand: null,
+          cleanupCommand: null,
+          remoteProvider: null,
+          remoteWorkspaceRef: null,
+          sharedWorkspaceKey: null,
+          runtimeConfig: null,
+          isPrimary: true,
+          createdAt: new Date("2026-03-20T00:00:00Z"),
+          updatedAt: new Date("2026-03-20T00:00:00Z"),
+        },
+        archivedAt: null,
+        createdAt: new Date("2026-03-20T00:00:00Z"),
+        updatedAt: new Date("2026-03-20T00:00:00Z"),
+      },
+    ]);
+
+    const res = await request(createApp()).get(
+      "/api/issues/11111111-1111-4111-8111-111111111111/heartbeat-context",
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.findMentionedProjectIds).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      { includeCommentBodies: true },
+    );
+    expect(mockProjectService.listByIds).toHaveBeenCalledWith("company-1", [mentionedProjectId]);
+    expect(res.body.project).toEqual(
+      expect.objectContaining({
+        id: legacyProjectLinkedIssue.projectId,
+        name: "Onboarding",
+        urlKey: "onboarding",
+        workspaces: [],
+        primaryWorkspace: null,
+      }),
+    );
+    expect(res.body.mentionedProjects).toEqual([
+      expect.objectContaining({
+        id: mentionedProjectId,
+        name: "H4H 2.0",
+        urlKey: "h4h-2-0",
+        workspaces: [
+          expect.objectContaining({
+            id: "workspace-1",
+            repoUrl: "git@bitbucket.org:InfiniteArea/api-ambassador-test",
+            isPrimary: true,
+          }),
+          expect.objectContaining({
+            id: "workspace-2",
+            repoUrl: "git@bitbucket.org:InfiniteArea/packages",
+            isPrimary: false,
+          }),
+        ],
+        primaryWorkspace: expect.objectContaining({
+          id: "workspace-1",
+          isPrimary: true,
+        }),
+      }),
+    ]);
   });
 
   it("preserves direct continuation summary lookup in GET /issues/:id/heartbeat-context", async () => {

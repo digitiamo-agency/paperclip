@@ -2,7 +2,7 @@
 name: first-task
 description: >
   Guide the user's first Paperclip task when its description invokes /first-task.
-  Interpret the opening answer, clarify their goal, propose a plan or a single
+  Interpret their first message, clarify their goal, propose a plan or a single
   task, and wait for approval before hiring agents or executing approved work.
 ---
 
@@ -17,17 +17,15 @@ next steps directly. This is a wording preference: answer truthfully if the
 user asks about the workflow, and always disclose relevant permissions,
 security implications, and execution actions.
 
-This is the user's first task in Paperclip. Your job is to understand what they want and propose a path forward. A greeting and an opening question card were already posted for you; the card offered two choices: "Interview me and propose a plan and an agent team to execute it." (option `interview`) or "I have a task in mind" (option `task`, with a text field). You are running because the user answered that card (the answer is in your wake payload) or wrote a message instead of answering. Don't re-introduce yourself and don't post the opening card again.
+This is the user's first task in Paperclip. Your job is to understand what they want and propose a path forward. A greeting was already posted for you. You are running because the user wrote a message. Don't re-introduce yourself and don't post an opening "what would you like to do" choice card.
 
 Work in this order.
 
-1. Take the path the user picked.
+1. Take the path that matches their message.
 
-   - `interview` → ask the user 3–4 questions in one Paperclip question card (`request_human_input` with `interactionKind: "questions"` when available, otherwise the `ask_user_questions` API) that pin down what their organization does, what they want to achieve first, any constraints (time, budget, tools), and what "done" looks like. Don't guess; ask. Don't post anything else before the card. The answers lead to the plan-and-team path in step 2.
+   - If they ask to be interviewed, or ask you to propose a plan and an agent team, ask the user 3–4 questions in one Paperclip question card (`request_human_input` with `interactionKind: "questions"` when available, otherwise the `ask_user_questions` API) that pin down what their organization does, what they want to achieve first, any constraints (time, budget, tools), and what "done" looks like. Don't guess; ask. Don't post anything else before the card. The answers lead to the plan-and-team path in step 2.
 
-   - `task` → the text they typed is the task. If it is clear enough to propose on, go straight to step 2. If not, reply by asking 2–3 questions specific to their message (concrete goal, constraints, what "done" looks like), then go to step 2.
-
-   - If they wrote a message instead of answering the card, treat the message as the `task` path.
+   - Otherwise treat their message as the task. If it is clear enough to propose on, go straight to step 2. If not, reply by asking 2–3 questions specific to their message (concrete goal, constraints, what "done" looks like), then go to step 2.
 
 2. Propose, then wait for acceptance.
 
@@ -39,7 +37,7 @@ Work in this order.
 
 3. Interpret the next reply against the latest proposal.
 
-   - Acceptance is an accepted confirmation card or an explicit conversational reply agreeing to the proposal. The opening answer, a clear request, and answers to clarification questions supply scope; they are not acceptance of a proposal you have not yet made.
+   - Acceptance is an accepted confirmation card or an explicit conversational reply agreeing to the proposal. A clear request and answers to clarification questions supply scope; they are not acceptance of a proposal you have not yet made.
    - When acceptance or rejection arrives in chat, persist it on the corresponding pending confirmation **before** hiring, creating a child, executing, or closing this task. Read this task's interactions and comments, then POST `/api/issues/{issueId}/interactions/{interactionId}/resolve-from-comment` with `{ "commentId": "<user-message-id>", "decision": "accept" }` (or `"reject"` and the user's reason). Native runners use `call_api`. For a checkbox card, include `selectedOptionIds` for the user's actual selection; never infer acceptance from defaults. Wait for the saved accepted/rejected result. Retry an interrupted write using the same message and decision; inspect a conflicting result instead of proceeding. Do not tell the user to return to the card after answering in chat.
    - An ambiguous reply with multiple pending proposals is not permission to resolve them all. Ask which proposal or options they mean. A card already answered through the UI needs no second resolution. Forms, governed actions, and human-only policies keep their existing response rules.
    - A clarification answer means update the proposal if needed and ask for acceptance. A requested revision supersedes the old scope: revise the proposal and wait for acceptance of the revised version.

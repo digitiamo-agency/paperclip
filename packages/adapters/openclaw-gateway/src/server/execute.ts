@@ -437,6 +437,7 @@ function buildWakeText(
     "HTTP rules:",
     "- Use Authorization: Bearer $PAPERCLIP_API_KEY on every API call.",
     "- Use X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID on every mutating API call.",
+    "- Use only api_base / $PAPERCLIP_API_URL from this wake. Never invent hosts (no app.paperclip.ai, no ${PAPERCLIP_API_URL:-...} defaults).",
     "- Use only /api endpoints listed below.",
     "- Do NOT call guessed endpoints like /api/cloud-adapter/*, /api/cloud-adapters/*, /api/adapters/cloud/*, or /api/heartbeat.",
     "",

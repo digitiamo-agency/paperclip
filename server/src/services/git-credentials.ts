@@ -61,6 +61,8 @@ export type GitAuthInvocation = {
   env: Record<string, string>;
   source: GitCredential["source"];
   secretName: string | null;
+  /** Optional cleanup for ephemeral material (for example a temp SSH key file). */
+  dispose?: () => Promise<void>;
 };
 
 /**
@@ -264,6 +266,17 @@ export function createGitRemoteAuthProvider(
   };
 
   return async (remoteUrl: string) => {
+    if (db) {
+      // Dynamic import avoids a static cycle with project-git-auth → git-credentials.
+      const { resolveProjectWorkspaceGitAuthInvocation } = await import("./project-git-auth.js");
+      const workspaceAuth = await resolveProjectWorkspaceGitAuthInvocation(
+        db,
+        companyId,
+        remoteUrl,
+        context,
+      );
+      if (workspaceAuth) return workspaceAuth;
+    }
     if (!isSupportedGitHubRemoteUrl(remoteUrl)) return null;
     if (db && context?.heartbeatRunId && context.agentId) {
       const [run] = await db.select({ contextId: heartbeatRuns.activeIdentityContextId }).from(heartbeatRuns).where(and(

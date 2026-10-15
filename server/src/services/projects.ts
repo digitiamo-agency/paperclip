@@ -7,12 +7,15 @@ import {
   goals,
   issues,
   budgetPolicies,
+  costEvents,
+  financeEvents,
   pluginManagedResources,
   plugins,
   projectWorkspaces,
   workspaceRuntimeServices,
 } from "@paperclipai/db";
 import {
+  deriveGitRemoteDisplayName,
   deriveProjectUrlKey,
   hasNonAsciiContent,
   isUuidLike,
@@ -533,15 +536,7 @@ function deriveNameFromCwd(cwd: string): string {
 }
 
 function deriveNameFromRepoUrl(repoUrl: string): string {
-  try {
-    const url = new URL(repoUrl);
-    const cleanedPath = url.pathname.replace(/\/+$/, "");
-    const lastSegment = cleanedPath.split("/").filter(Boolean).pop() ?? "";
-    const noGitSuffix = lastSegment.replace(/\.git$/i, "");
-    return noGitSuffix || repoUrl;
-  } catch {
-    return repoUrl;
-  }
+  return deriveGitRemoteDisplayName(repoUrl);
 }
 
 function deriveWorkspaceName(input: {
@@ -1054,16 +1049,28 @@ export function projectService(db: Db, options: { captureWorkspaceUpdates?: bool
       return cleared;
     },
 
-    remove: (id: string) =>
-      db
-        .delete(projects)
-        .where(eq(projects.id, id))
-        .returning()
-        .then((rows) => {
-          const row = rows[0] ?? null;
-          if (!row) return null;
-          return { ...row, urlKey: deriveProjectUrlKey(row.name, row.id) };
-        }),
+    remove: async (id: string) => {
+      // Issues / cost / finance keep history but drop the project pointer —
+      // those FKs have no ON DELETE action, so a bare project delete fails.
+      return db.transaction(async (tx) => {
+        await tx.update(issues).set({ projectId: null }).where(eq(issues.projectId, id));
+        await tx.update(costEvents).set({ projectId: null }).where(eq(costEvents.projectId, id));
+        await tx.update(financeEvents).set({ projectId: null }).where(eq(financeEvents.projectId, id));
+        await tx
+          .delete(pluginManagedResources)
+          .where(
+            and(
+              eq(pluginManagedResources.resourceKind, "project"),
+              eq(pluginManagedResources.resourceId, id),
+            ),
+          );
+
+        const rows = await tx.delete(projects).where(eq(projects.id, id)).returning();
+        const row = rows[0] ?? null;
+        if (!row) return null;
+        return { ...row, urlKey: deriveProjectUrlKey(row.name, row.id) };
+      });
+    },
 
     listWorkspaces: async (projectId: string): Promise<ProjectWorkspace[]> => {
       const rows = await db

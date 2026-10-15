@@ -238,6 +238,7 @@ export const NON_RETRYABLE_PREFLIGHT_FAILURE_CODES = new Set<string>([
   "low_trust_boundary_mismatch",
   "low_trust_requires_sandbox_environment",
   "low_trust_runtime_services_denied",
+  "host_workspace_filesystem_scope_required",
   "chat_failed_run_retry_not_authorized",
   CHAT_CONTROL_RECOVERY_UNRESOLVED_CODE,
 ]);

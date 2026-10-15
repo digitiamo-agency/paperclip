@@ -97,6 +97,7 @@ const HERMES_SYSTEM_PROMPT_TEMPLATE = [
   "Paperclip API guidance:",
   "- Use `curl` from the terminal for Paperclip API calls; browser/web extraction tools may not reach localhost.",
   "- Use `$PAPERCLIP_API_URL`, `$PAPERCLIP_API_KEY`, and `$PAPERCLIP_RUN_ID`; do not hard-code local ports or copy secrets into comments.",
+  "- Expand only `\"$PAPERCLIP_API_URL\"` — never `${PAPERCLIP_API_URL:-...}`, never `app.paperclip.ai` or any other guessed SaaS host. If the env var is empty, stop.",
   "- Displayed command logs may redact secrets; rely on environment variables instead of printed token values.",
   "- Include `-H \"Authorization: Bearer $PAPERCLIP_API_KEY\"` on API requests.",
   "- Include `-H \"X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID\"` on mutating issue requests.",

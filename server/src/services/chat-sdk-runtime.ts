@@ -5,6 +5,12 @@ import { PhotonReceiver } from "./photon/receiver.js";
 import { photonAttachmentLocator, photonAttachmentLocatorSchema, downloadPhotonAttachment, type PhotonAttachmentLocator } from "./photon/attachments.js";
 import type { LiveEvent as PhotonEvent } from "@photon-ai/advanced-imessage";
 import {
+  WhatsAppWebChatAdapter,
+  getWhatsAppWebSession,
+  stopWhatsAppWebSession,
+  type WhatsAppWebRawMessage,
+} from "./whatsapp-web/index.js";
+import {
   createGitHubAdapter,
   type GitHubAdapter,
   type GitHubAdapterConfig,
@@ -136,8 +142,8 @@ const DISCORD_GATEWAY_HEALTHY_SESSION_MS = 60_000;
 
 /** Public Paperclip provider ids. The Teams SDK name remains an internal detail. */
 export type ChatSdkProvider =
-  "slack" | "github" | "discord" | "microsoft-teams" | "telegram" | "imessage-photon";
-type ChatSdkAdapterKey = "slack" | "github" | "discord" | "teams" | "telegram" | "imessage-photon";
+  "slack" | "github" | "discord" | "microsoft-teams" | "telegram" | "imessage-photon" | "whatsapp-web";
+type ChatSdkAdapterKey = "slack" | "github" | "discord" | "teams" | "telegram" | "imessage-photon" | "whatsapp-web";
 
 interface ProviderConfigBase {
   /** Agent-derived native bot display/mention name. */
@@ -211,8 +217,15 @@ export interface ResolvedPhotonChatConfig extends ProviderConfigBase {
   intakeAfter: number;
   credentials: { allocation?: "dedicated" | "shared"; projectId: string; projectSecret: string; lineId: string; phoneNumber: string };
 }
+
+export interface ResolvedWhatsAppWebChatConfig extends ProviderConfigBase {
+  provider: "whatsapp-web";
+  credentials: { accountWid: string; pushName?: string };
+}
+
 export type ResolvedChatSdkProviderConfig =
   | ResolvedPhotonChatConfig
+  | ResolvedWhatsAppWebChatConfig
   | ResolvedSlackChatConfig
   | ResolvedGitHubChatConfig
   | ResolvedDiscordChatConfig
@@ -470,6 +483,8 @@ export interface ChatSdkRuntimeCallbacks {
   onPhotonAssertOwned?(activeThreadId?: string): Promise<void>;
   onPhotonCheckpoint?(sequence: number): Promise<void>;
   onPhotonFailure?(error: unknown): Promise<void>;
+  onWhatsAppWebMessage?(message: WhatsAppWebRawMessage): Promise<void>;
+  onWhatsAppWebFailure?(error: string): Promise<void>;
   onMessage(event: ChatSdkMessageCallbackEvent): Promise<void> | void;
   onTelegramGenerationStopped?(
     event: ChatSdkCallbackEvent<TelegramGenerationStoppedProof>,
@@ -1357,6 +1372,7 @@ function createProviderAdapter(
   const resolvedLogger = adapterLogger(logger);
   switch (config.provider) {
     case "imessage-photon": throw new Error("Photon adapter requires scoped persistence");
+    case "whatsapp-web": throw new Error("WhatsApp Web adapter requires a live session");
     case "slack": {
       const adapterConfig: SlackAdapterConfig = {
         ...config.credentials,
@@ -2101,6 +2117,15 @@ export class ChatSdkEndpointRuntime {
       ? new PhotonChatAdapter(options.providerConfig.userName,
           new PhotonLineAuthentication(options.providerConfig.credentials, options.providerConfig.credentials.projectSecret),
           new PhotonState({ companyId: options.companyId, endpointId: options.endpointId }, options.persistence))
+      : options.providerConfig.provider === "whatsapp-web"
+      ? new WhatsAppWebChatAdapter(
+          options.providerConfig.userName,
+          options.providerConfig.credentials.accountWid,
+          async (chatId, text) => {
+            const session = getWhatsAppWebSession(options.companyId, options.endpointId);
+            return session.sendMessage(chatId, text);
+          },
+        )
       : createProviderAdapter(
       options.providerConfig,
       options.logger,
@@ -2292,6 +2317,36 @@ export class ChatSdkEndpointRuntime {
         assertOwned: async () => { this.assertNotRetired(); await (this.adapter as PhotonChatAdapter).authentication.token(); await options.callbacks.onPhotonAssertOwned!(); },
         commitCheckpoint: options.callbacks.onPhotonCheckpoint, admit: options.callbacks.onPhotonEvent, failure: options.callbacks.onPhotonFailure });
       this.photonReceiver.start();
+    }
+    if (this.adapter instanceof WhatsAppWebChatAdapter && this.discordGatewayEnabled) {
+      const options = this.runtimeOptions;
+      const config = options.providerConfig as ResolvedWhatsAppWebChatConfig;
+      if (!options.callbacks.onWhatsAppWebMessage) {
+        throw new Error("WhatsApp Web runtime requires an inbound admission callback");
+      }
+      const session = getWhatsAppWebSession(
+        options.companyId,
+        options.endpointId,
+        {
+          onMessage: async (message) => {
+            this.assertNotRetired();
+            await options.callbacks.onWhatsAppWebMessage!(message);
+          },
+          onFailure: async (error) => {
+            await options.callbacks.onWhatsAppWebFailure?.(error);
+          },
+        },
+      );
+      const status = await session.start();
+      if (status.phase === "failed") {
+        throw new Error(status.error ?? "WhatsApp Web session failed to start");
+      }
+      if (
+        status.wid &&
+        status.wid !== config.credentials.accountWid
+      ) {
+        throw new Error("WhatsApp Web session identity does not match this endpoint");
+      }
     }
     if (this.provider === "discord" && this.discordGatewayEnabled) {
       this.startDiscordGateway();
@@ -3139,6 +3194,9 @@ export class ChatSdkEndpointRuntime {
       await this.discordGatewayTask?.catch(() => undefined);
       this.discordGatewayAbort = null;
       await this.photonReceiver?.close();
+      if (this.provider === "whatsapp-web") {
+        await stopWhatsAppWebSession(this.endpointId);
+      }
       await this.chat.shutdown();
       this.shutdownCompleted = true;
     })();

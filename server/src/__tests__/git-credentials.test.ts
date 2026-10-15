@@ -156,6 +156,8 @@ describe("createGitRemoteAuthProvider", () => {
     });
     const db = {
       select: vi.fn()
+        // Project-workspace git auth lookup runs first and finds nothing.
+        .mockReturnValueOnce(query([]))
         .mockReturnValueOnce(query([{
           id: "github-connection",
           companyId: "company-1",
@@ -181,7 +183,7 @@ describe("createGitRemoteAuthProvider", () => {
     expect(invocation?.source).toBe("company_secret");
     expect(invocation?.secretName).toBe("GH_TOKEN");
     expect(invocation?.env[GIT_CREDENTIAL_TOKEN_ENV_KEY]).toBe("agent-b-legacy-token");
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.select).toHaveBeenCalledTimes(3);
   });
 });
 

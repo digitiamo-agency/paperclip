@@ -11,6 +11,7 @@ import {
   CHAT_PROVIDERS,
   CHAT_PUBLICATION_STATES,
   CHAT_RESOURCE_AVAILABILITIES,
+  WHATSAPP_WEB_AUTO_REPLY_MODES,
 } from "../types/chat-channels.js";
 
 export const chatProviderSchema = z.enum(CHAT_PROVIDERS);
@@ -86,6 +87,16 @@ export const createChatEndpointSchema = z
     message: "Slack app details only apply to Slack connections", path: ["slackApp"],
   });
 
+export const whatsappWebAutoReplyModeSchema = z.enum(WHATSAPP_WEB_AUTO_REPLY_MODES);
+
+export const updateWhatsAppWebAutoReplySchema = z
+  .object({
+    mode: whatsappWebAutoReplyModeSchema,
+    contacts: z.array(z.string().trim().min(1).max(128)).max(2_000).optional(),
+    clearKnownContacts: z.boolean().optional(),
+  })
+  .strict();
+
 export const updateChatEndpointSchema = z
   .object({
     communicationInstructions: multilineTextSchema.pipe(z.string().trim().max(4000)).optional(),
@@ -95,6 +106,7 @@ export const updateChatEndpointSchema = z
     requireAtMention: z.boolean().optional(),
     allowGroupChats: z.boolean().optional(),
     allowUnlinkedPeople: z.boolean().optional(),
+    whatsappWebAutoReply: updateWhatsAppWebAutoReplySchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

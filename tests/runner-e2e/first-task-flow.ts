@@ -418,50 +418,30 @@ export async function runFirstTaskFlow(input: {
       );
       await settle(before);
       await snapshot("response");
-    } else if (scenario.opening === "message") {
-      await turn(scenario.prompt, "response");
-    } else {
-      const opening = e.checkpoints[0].interactions.find(
-        (i) => i.kind === "ask_user_questions" && i.status === "pending",
-      );
-      expect(opening, "deterministic opening card").toBeTruthy();
-      const option = opening!.payload.questions[0].options.find(
-        (o: any) =>
-          o.id === (scenario.opening === "interview" ? "interview" : "task"),
-      );
-      await page
-        // Paperclip includes the option description in the accessible name.
-        .getByRole("radio", { name: option.label })
-        .last()
-        .click();
-      if (scenario.opening !== "interview")
-        await page
-          .getByTestId("question-other-answer-composer")
-          .last()
-          .locator('[contenteditable="true"],textarea')
-          .first()
-          .fill(scenario.prompt);
+    } else if (scenario.id === "accept-while-running") {
+      // Free composer: send the task without waiting for the run to finish so
+      // acceptance can overlap the still-running proposal turn.
       const before = new Set((await allRuns()).map((r) => r.id));
-      await page
-        .getByRole("button", {
-          name: opening!.payload.submitLabel ?? "Continue",
-          exact: true,
-        })
-        .last()
-        .click();
-      if (scenario.id === "accept-while-running") {
-        await pollUntil({
-          label: "approval card published before the source run finishes",
-          deadlineAt: Math.min(deadlineAt, Date.now() + 300_000), intervalMs: 100,
-          load: async () => ({ interactions: await api.get<Row[]>(`/api/issues/${issue.id}/interactions`), runs: await allRuns() }),
-          accept: ({ interactions, runs }) => interactions.some(i => i.status === "pending" &&
-            ["request_confirmation", "request_checkbox_confirmation"].includes(i.kind) &&
-            runs.some(r => r.id === i.sourceRunId && r.status === "running")),
-          reject: ({ runs }) => runs.some(r => !before.has(r.id)) && !activeRuns(runs).length
-            ? "Acceptance overlap was not exercised: source run finished before a live approval card was observed" : undefined,
-        });
-      } else await settle(before);
-      await snapshot("response");
+      await sendChatMessage(page, scenario.prompt);
+      await pollUntil({
+        label: "approval card published before the source run finishes",
+        deadlineAt: Math.min(deadlineAt, Date.now() + 300_000), intervalMs: 100,
+        load: async () => ({ interactions: await api.get<Row[]>(`/api/issues/${issue.id}/interactions`), runs: await allRuns() }),
+        accept: ({ interactions, runs }) => interactions.some(i => i.status === "pending" &&
+          ["request_confirmation", "request_checkbox_confirmation"].includes(i.kind) &&
+          runs.some(r => r.id === i.sourceRunId && r.status === "running")),
+        reject: ({ runs }) => runs.some(r => !before.has(r.id)) && !activeRuns(runs).length
+          ? "Acceptance overlap was not exercised: source run finished before a live approval card was observed" : undefined,
+      });
+    } else if (scenario.opening === "interview") {
+      // No deterministic opening card: request the interview path in chat.
+      await turn(
+        "Interview me and propose a plan and an agent team to execute it.",
+        "response",
+      );
+    } else {
+      // task / ambiguous / plan / message: free composer after the greeting.
+      await turn(scenario.prompt, "response");
     }
     // Screenshots can take longer than the source turn's final handoff. In the
     // overlap case, accept first and retain the response checkpoint as evidence.

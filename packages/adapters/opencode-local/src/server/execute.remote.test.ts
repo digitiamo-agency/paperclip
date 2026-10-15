@@ -237,7 +237,14 @@ describe("opencode remote execution", () => {
       `${managedRemoteWorkspace}/.paperclip-runtime/opencode/xdgConfig`,
     );
     expect(modelProbeCall?.[3].remoteExecution?.remoteCwd).toBe("/remote/workspace");
-    expect(runCall?.[2].slice(-4)).toEqual(["--dir", managedRemoteWorkspace, "--", "--dir"]);
+    expect(runCall?.[2].slice(-2)).toEqual(["--", "--dir"]);
+    const optionTerminator = runCall?.[2].indexOf("--") ?? -1;
+    expect(
+      (runCall?.[2].slice(0, optionTerminator) ?? []).filter(
+        (arg) => arg === "--dir" || arg.startsWith("--dir="),
+      ),
+    ).toHaveLength(0);
+    expect(runCall?.[3].env.PWD).toBe(managedRemoteWorkspace);
     const call = runCall as
       | [string, string, string[], { env: Record<string, string>; remoteExecution?: { remoteCwd: string } | null }]
       | undefined;
@@ -400,7 +407,11 @@ describe("opencode remote execution", () => {
       | undefined;
     expect(call?.[2]).toContain("--session");
     expect(call?.[2]).toContain("session-123");
+    // Operator-supplied `--dir` is still forwarded in extraArgs, but Paperclip
+    // no longer auto-injects `--dir` (unsupported on current OpenCode CLIs).
     expect(call?.[2].slice(-2)).toEqual(["--dir", "/operator-supplied"]);
     expect(call?.[2].filter((arg) => arg === "--dir" || arg.startsWith("--dir="))).toHaveLength(1);
+    expect((call as [string, string, string[], { env: Record<string, string> }] | undefined)?.[3].env.PWD)
+      .toBe(managedRemoteWorkspace);
   });
 });

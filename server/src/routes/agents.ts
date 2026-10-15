@@ -48,17 +48,20 @@ import {
   agentMineInboxQuerySchema,
   ADAPTER_AGNOSTIC_KEYS,
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
+  appendCompanyDialogueLanguagePolicy,
   createAgentKeySchema,
   createAgentHireSchema,
   createAgentSchema,
   deriveAgentUrlKey,
   isUuidLike,
+  normalizeCompanyDialogueLanguage,
   normalizeIssueIdentifier,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
   type AgentDesiredSkillEntry,
   type AgentSkillAssignmentMode,
   type AgentSkillSnapshot,
+  type CompanyDialogueLanguage,
   type InstanceSchedulerHeartbeatAgent,
   upsertAgentInstructionsFileSchema,
   restoreAgentInstructionSchema,
@@ -2362,7 +2365,11 @@ export function agentRoutes(
     adapterConfig: unknown;
   }>(
     agent: T,
-    input?: { files: Record<string, string>; entryFile?: string },
+    input?: {
+      files?: Record<string, string>;
+      entryFile?: string;
+      dialogueLanguage?: CompanyDialogueLanguage | string | null;
+    },
   ): Promise<T> {
     if (!adapterSupportsInstructionsBundle(agent.adapterType)) {
       return agent;
@@ -2390,12 +2397,17 @@ export function agentRoutes(
       return (updated as T | null) ?? { ...agent, adapterConfig: nextAdapterConfig };
     }
 
-    const files = input?.files
-      ?? await loadDefaultAgentInstructionsBundle(resolveDefaultAgentInstructionsBundleRole(agent.role));
+    const entryFile = input?.entryFile ?? "AGENTS.md";
+    const files = {
+      ...(input?.files
+        ?? await loadDefaultAgentInstructionsBundle(resolveDefaultAgentInstructionsBundleRole(agent.role))),
+    };
+    const dialogueLanguage = normalizeCompanyDialogueLanguage(input?.dialogueLanguage);
+    files[entryFile] = appendCompanyDialogueLanguagePolicy(files[entryFile] ?? "", dialogueLanguage);
     const materialized = await instructions.materializeManagedBundle(
       agent,
       files,
-      { entryFile: input?.entryFile ?? "AGENTS.md", replaceExisting: false },
+      { entryFile, replaceExisting: false },
     );
     const nextAdapterConfig = { ...materialized.adapterConfig };
     delete nextAdapterConfig.promptTemplate;
@@ -3065,10 +3077,24 @@ export function agentRoutes(
         if (!target.executionTarget && target.fallbackChecks.length > 0) throw unprocessable("The agent environment is not available for adoption");
         await withManagedAiProbe(db, { companyId, agentId, responsibleUserId: userId, adapterType, binding, config, allowUninstalledPersonal: newAgent, allowUninstalledShared, allowLegacyValidation: true }, async managed => {
         const result = await testManagedEnvironment(adapterType, { companyId, adapterType, config: managed.config, executionTarget: target.executionTarget, environmentName: target.environmentName }, binding, managed, agentId);
-        if (result.status === "fail" || result.checks.some(check => check.code === ADAPTER_AUTH_MISSING_CHECK_CODE)) throw unprocessable("The selected AI connection failed validation in this agent’s environment. Run the agent test to see the failing checks.", {
-          code: "ai_connection_validation_failed",
-          checks: result.checks.filter(check => check.level === "error" || check.code === ADAPTER_AUTH_MISSING_CHECK_CODE).map(check => ({ code: check.code, level: check.level })),
-        });
+        if (result.status === "fail" || result.checks.some(check => check.code === ADAPTER_AUTH_MISSING_CHECK_CODE)) {
+          const failing = result.checks.filter(check => check.level === "error" || check.code === ADAPTER_AUTH_MISSING_CHECK_CODE);
+          const detail = failing.map(check => check.message).filter(Boolean).join(" ");
+          throw unprocessable(
+            detail
+              ? `The selected AI connection failed validation in this agent’s environment. ${detail}`
+              : "The selected AI connection failed validation in this agent’s environment. Run the agent test to see the failing checks.",
+            {
+              code: "ai_connection_validation_failed",
+              checks: failing.map(check => ({
+                code: check.code,
+                level: check.level,
+                message: check.message,
+                ...(check.hint ? { hint: check.hint } : {}),
+              })),
+            },
+          );
+        }
         if (selection.connection.config.aiLegacyAdoption === true) await db.update(toolConnections).set({ healthStatus: "ok", config: { ...selection.connection.config, aiLegacyAdoption: false }, updatedAt: new Date() }).where(eq(toolConnections.id, selection.connection.id));
         });
       } finally { await target.release("released"); }
@@ -4388,7 +4414,10 @@ export function agentRoutes(
       });
       const agent = await materializeDefaultInstructionsBundleForNewAgent(
         createdAgent,
-        onboardingFirstAgentBundle ?? instructionsBundle,
+        {
+          ...(onboardingFirstAgentBundle ?? instructionsBundle),
+          dialogueLanguage: company.dialogueLanguage,
+        },
       );
 
       let approval: Awaited<ReturnType<typeof approvalsSvc.getById>> | null = null;
@@ -4636,7 +4665,10 @@ export function agentRoutes(
     });
     const agent = await materializeDefaultInstructionsBundleForNewAgent(
       createdAgent,
-      onboardingFirstAgentBundle ?? instructionsBundle,
+      {
+        ...(onboardingFirstAgentBundle ?? instructionsBundle),
+        dialogueLanguage: company.dialogueLanguage,
+      },
     );
 
     const actor = getActorInfo(req);

@@ -433,6 +433,7 @@ export async function resolveWorkspaceAfterLowTrustPreflight<
 function deriveRepoNameFromRepoUrl(repoUrl: string | null): string | null {
   const trimmed = repoUrl?.trim() ?? "";
   if (!trimmed) return null;
+  // Dynamic import would be awkward in a sync helper; parse SCP and URL forms inline.
   try {
     const parsed = new URL(trimmed);
     const cleanedPath = parsed.pathname.replace(/\/+$/, "");
@@ -444,7 +445,10 @@ function deriveRepoNameFromRepoUrl(repoUrl: string | null): string | null {
         ?.replace(/\.git$/i, "") ?? "";
     return repoName || null;
   } catch {
-    return null;
+    const scp = /^[^@:/\s]+@[^@:/\s]+:(\S+)$/.exec(trimmed);
+    if (!scp?.[1]) return null;
+    const repoName = scp[1].replace(/\/+$/, "").split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") ?? "";
+    return repoName || null;
   }
 }
 
@@ -552,62 +556,66 @@ async function materializeManagedProjectWorkspace(
   const cloneTmpDir = await fs.mkdtemp(`${cwd}.clone-`);
   try {
     try {
-      await execFile(
-        "git",
-        [...(auth?.configArgs ?? []), "clone", "--no-hardlinks", "--", input.localSource ?? input.repoUrl, cloneTmpDir],
-        {
-          env: {
-            // Spread order matters: the sanitizer strips PAPERCLIP_*, which would remove the
-            // credential-helper token env if it came first. GIT_TERMINAL_PROMPT=0 fails a
-            // credential-less private clone immediately instead of hanging on a prompt until
-            // the clone timeout.
-            ...sanitizeRuntimeServiceBaseEnv(process.env),
-            GIT_TERMINAL_PROMPT: "0",
-            ...(auth?.env ?? {}),
-          },
-          timeout: MANAGED_WORKSPACE_GIT_CLONE_TIMEOUT_MS,
-        },
-      );
-    } catch (error) {
-      const connectionFailure = !input.localSource ? classifyGitCloneFailure(input.repoUrl, error) : null;
-      if (connectionFailure) throw new GitConnectionFailureError(
-        error instanceof Error ? error.message : "Git clone failed", connectionFailure,
-      );
-      throw error;
-    }
-    if (input.localSource) {
-      const snapshot = await readGitWorkspaceSnapshot(input.localSource, false);
-      if (!snapshot) throw new Error("Configured repository folder is not a Git checkout");
-      let baseline;
       try {
-        baseline = await captureDirectorySnapshot(cloneTmpDir, { exclude: [".git", ".paperclip-runtime", PROJECT_REPOSITORIES_DIR], ignoredPaths: snapshot.ignoredPaths, diskBacked: true });
-        await mergeDirectoryWithBaseline({ baseline, sourceDir: input.localSource, targetDir: cloneTmpDir });
-      } finally {
-        if (baseline) await disposeDirectorySnapshot(baseline);
-        await disposeGitWorkspaceSnapshot(snapshot);
+        await execFile(
+          "git",
+          [...(auth?.configArgs ?? []), "clone", "--no-hardlinks", "--", input.localSource ?? input.repoUrl, cloneTmpDir],
+          {
+            env: {
+              // Spread order matters: the sanitizer strips PAPERCLIP_*, which would remove the
+              // credential-helper token env if it came first. GIT_TERMINAL_PROMPT=0 fails a
+              // credential-less private clone immediately instead of hanging on a prompt until
+              // the clone timeout.
+              ...sanitizeRuntimeServiceBaseEnv(process.env),
+              GIT_TERMINAL_PROMPT: "0",
+              ...(auth?.env ?? {}),
+            },
+            timeout: MANAGED_WORKSPACE_GIT_CLONE_TIMEOUT_MS,
+          },
+        );
+      } catch (error) {
+        const connectionFailure = !input.localSource ? classifyGitCloneFailure(input.repoUrl, error) : null;
+        if (connectionFailure) throw new GitConnectionFailureError(
+          error instanceof Error ? error.message : "Git clone failed", connectionFailure,
+        );
+        throw error;
       }
-      await execFile("git", ["-C", cloneTmpDir, "remote", "set-url", "origin", input.repoUrl], { timeout: 10_000 });
-    } else if (input.repoRef) {
-      await execFile("git", ["-C", cloneTmpDir, "checkout", input.repoRef], { timeout: MANAGED_WORKSPACE_GIT_CLONE_TIMEOUT_MS });
+      if (input.localSource) {
+        const snapshot = await readGitWorkspaceSnapshot(input.localSource, false);
+        if (!snapshot) throw new Error("Configured repository folder is not a Git checkout");
+        let baseline;
+        try {
+          baseline = await captureDirectorySnapshot(cloneTmpDir, { exclude: [".git", ".paperclip-runtime", PROJECT_REPOSITORIES_DIR], ignoredPaths: snapshot.ignoredPaths, diskBacked: true });
+          await mergeDirectoryWithBaseline({ baseline, sourceDir: input.localSource, targetDir: cloneTmpDir });
+        } finally {
+          if (baseline) await disposeDirectorySnapshot(baseline);
+          await disposeGitWorkspaceSnapshot(snapshot);
+        }
+        await execFile("git", ["-C", cloneTmpDir, "remote", "set-url", "origin", input.repoUrl], { timeout: 10_000 });
+      } else if (input.repoRef) {
+        await execFile("git", ["-C", cloneTmpDir, "checkout", input.repoRef], { timeout: MANAGED_WORKSPACE_GIT_CLONE_TIMEOUT_MS });
+      }
+    } catch (error) {
+      await fs
+        .rm(cloneTmpDir, { recursive: true, force: true })
+        .catch(() => undefined);
+      const reason = error instanceof Error ? error.message : String(error);
+      const authNote = describeGitAuthFailure({
+        error: reason,
+        used: auth ? { source: auth.source, secretName: auth.secretName } : null,
+      });
+      const message = scrubGitCredentialText(
+        `Failed to prepare managed checkout for "${input.repoUrl}" at "${cwd}": ${reason}${authNote ? ` ${authNote}` : ""}`,
+      );
+      // Preserve the closed failure code without copying subprocess output or
+      // credentials into the durable run. Setup recovery needs the actual cause.
+      if (isWorkspaceGitScanError(error)) throw new WorkspaceGitScanError(error.code, message);
+      const connectionFailure = readGitConnectionFailure(error);
+      if (connectionFailure) throw new GitConnectionFailureError(message, connectionFailure);
+      throw new Error(message);
     }
-  } catch (error) {
-    await fs
-      .rm(cloneTmpDir, { recursive: true, force: true })
-      .catch(() => undefined);
-    const reason = error instanceof Error ? error.message : String(error);
-    const authNote = describeGitAuthFailure({
-      error: reason,
-      used: auth ? { source: auth.source, secretName: auth.secretName } : null,
-    });
-    const message = scrubGitCredentialText(
-      `Failed to prepare managed checkout for "${input.repoUrl}" at "${cwd}": ${reason}${authNote ? ` ${authNote}` : ""}`,
-    );
-    // Preserve the closed failure code without copying subprocess output or
-    // credentials into the durable run. Setup recovery needs the actual cause.
-    if (isWorkspaceGitScanError(error)) throw new WorkspaceGitScanError(error.code, message);
-    const connectionFailure = readGitConnectionFailure(error);
-    if (connectionFailure) throw new GitConnectionFailureError(message, connectionFailure);
-    throw new Error(message);
+  } finally {
+    await auth?.dispose?.().catch(() => undefined);
   }
 
   try {

@@ -15,6 +15,7 @@ import {
 } from "@paperclipai/db";
 import {
   createAiConnectionSchema,
+  discoverOpenAiCompatibleModelsSchema,
   aiConnectionLoginIntentSchema,
   localAiConnectionSchema,
   localAiLoginStartSchema,
@@ -32,6 +33,7 @@ import { accessService } from "../services/access.js";
 import { logActivity } from "../services/activity-log.js";
 import { aiConnectionRouterService } from "../services/ai-connection-router.js";
 import { aiConnectionService } from "../services/ai-connections.js";
+import { listOpenAiCompatibleModels } from "../services/openai-compatible-models.js";
 import { validate } from "../middleware/validate.js";
 
 /** Agent API calls inherit authenticated run identity, never the agent's own ID. */
@@ -246,6 +248,40 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
     },
   );
   router.get(
+    "/companies/:companyId/ai-connections/:connectionId/models",
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertBoard(req);
+      assertCompanyAccess(req, companyId);
+      if (
+        req.actor.memberships?.some(
+          (m) => m.companyId === companyId && m.membershipRole === "viewer",
+        )
+      ) {
+        throw forbidden("Viewers cannot list connection model catalogs");
+      }
+      const connectionId = z.string().uuid().safeParse(req.params.connectionId);
+      const grantId = z.string().uuid().optional().safeParse(req.query.grantId);
+      if (!connectionId.success || !grantId.success) throw unprocessable("Invalid connection or grant ID");
+      try {
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+          models: await service.listModels(
+            companyId,
+            getActorInfo(req).actorId,
+            connectionId.data,
+            grantId.data,
+          ),
+        });
+      } catch (err) {
+        if (err && typeof err === "object" && "status" in err) throw err;
+        throw unprocessable(
+          err instanceof Error ? err.message : "Could not load models from the connection.",
+        );
+      }
+    },
+  );
+  router.get(
     "/companies/:companyId/ai-connections/:connectionId/active-runs",
     async (req, res) => {
       const companyId = req.params.companyId as string;
@@ -284,6 +320,33 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
             ),
           ),
       );
+    },
+  );
+  router.post(
+    "/companies/:companyId/ai-connections/discover-models",
+    validate(discoverOpenAiCompatibleModelsSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertBoard(req);
+      assertCompanyAccess(req, companyId);
+      if (
+        req.actor.memberships?.some(
+          (m) => m.companyId === companyId && m.membershipRole === "viewer",
+        )
+      ) {
+        throw forbidden("Viewers cannot discover model catalogs");
+      }
+      const input = discoverOpenAiCompatibleModelsSchema.parse(req.body);
+      try {
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+          models: await listOpenAiCompatibleModels(input.baseUrl, input.apiKey),
+        });
+      } catch (err) {
+        throw unprocessable(
+          err instanceof Error ? err.message : "Could not load models from the endpoint.",
+        );
+      }
     },
   );
   router.post(

@@ -9,6 +9,9 @@ server/ui-dist/
 packages/paperclip-runner/runner/target/
 ui/storybook-static/
 .env
+.env.daytona
+docker_oracle/paperclip.env
+
 *.tsbuildinfo
 drizzle/meta/
 .vite/

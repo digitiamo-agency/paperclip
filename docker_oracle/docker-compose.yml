@@ -1,0 +1,72 @@
+# Paperclip su host/VM (immagine da OCIR o build locale).
+#
+# Setup:
+#   cp docker_oracle/paperclip.env.example docker_oracle/paperclip.env
+#   # genera secret e imposta PAPERCLIP_PUBLIC_URL / API key
+#
+# Avvio (pull immagine OCIR):
+#   docker compose -f docker_oracle/docker-compose.yml --env-file docker_oracle/paperclip.env up -d
+#
+# Build locale invece del pull:
+#   docker compose -f docker_oracle/docker-compose.yml --env-file docker_oracle/paperclip.env up -d --build
+#
+# Stack con Postgres dedicato (profilo db):
+#   # in paperclip.env: DATABASE_URL=postgres://paperclip:paperclip@db:5432/paperclip
+#   docker compose -f docker_oracle/docker-compose.yml --env-file docker_oracle/paperclip.env --profile db up -d
+#
+services:
+  paperclip:
+    image: ${PAPERCLIP_IMAGE:-lin.ocir.io/ax5avusujxyu/infinitearena/paperclip:latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: ${DOCKER_TARGET:-production}
+      args:
+        PAPERCLIP_BUILD_VERSION: ${PAPERCLIP_BUILD_VERSION:-}
+        PAPERCLIP_BUILD_COMMIT: ${PAPERCLIP_BUILD_COMMIT:-}
+        CLI_TOOLS_CACHE_EPOCH: ${CLI_TOOLS_CACHE_EPOCH:-}
+    # Ceiling on processes. L'immagine usa tini come PID 1.
+    pids_limit: 2048
+    ports:
+      - "${PAPERCLIP_PORT:-3100}:3100"
+    env_file:
+      - paperclip.env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3100"
+      SERVE_UI: "true"
+      PAPERCLIP_HOME: "/paperclip"
+      PAPERCLIP_DEPLOYMENT_MODE: "${PAPERCLIP_DEPLOYMENT_MODE:-authenticated}"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "${PAPERCLIP_DEPLOYMENT_EXPOSURE:-private}"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?imposta BETTER_AUTH_SECRET in paperclip.env}"
+    volumes:
+      - "${PAPERCLIP_DATA_DIR:-../data/docker-paperclip-oracle}:/paperclip"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
+
+  db:
+    profiles: ["db"]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-paperclip}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-paperclip}"
+      POSTGRES_DB: "${POSTGRES_DB:-paperclip}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-paperclip} -d ${POSTGRES_DB:-paperclip}",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - paperclip-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  paperclip-pgdata:

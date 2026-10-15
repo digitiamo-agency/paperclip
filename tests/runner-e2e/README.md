@@ -1074,19 +1074,20 @@ campaign result bundle, and history entry. Suite/profile selectors narrow that
 same harness; they do not invoke a separate onboarding reporting program.
 
 `first-task` uses the production onboarding wizard, creates the first agent,
-keeps its default persona/model/permissions/skill assignments, and answers the
-seeded opening question in the browser. The suite does not install the generic
-Runner QA persona or replace the hidden `/first-task` invocation. Profile IDs
-select the Codex or Claude adapter family; **the production onboarding model
-default is retained**, even when it differs from that profile's normal harness
-model. Configured and provider-observed model identities are reported separately.
+keeps its default persona/model/permissions/skill assignments, and starts from
+the free composer after the seeded greeting (no opening choice card). The suite
+does not install the generic Runner QA persona or replace the hidden
+`/first-task` invocation. Profile IDs select the Codex or Claude adapter family;
+**the production onboarding model default is retained**, even when it differs
+from that profile's normal harness model. Configured and provider-observed model
+identities are reported separately.
 
 There are thirteen cases on `legacy-codex`, `legacy-claude`, `runner-codex`, and
 `runner-acpx-claude`, local only (52 cells). Native profiles complete the same
 production wizard using their legacy provider, then change only the agent's
 runtime configuration via the public API before its first task. The wizard does
-not currently offer native Runner. Persona, managed instructions, skills, seeded
-question, and task invocation are preserved. Explicit model choices are retained;
+not currently offer native Runner. Persona, managed instructions, skills,
+greeting, and task invocation are preserved. Explicit model choices are retained;
 an unset model resolves through the production runtime-switch defaults. The
 production switch removes the legacy Paperclip operational skill because Runner
 supplies its control-plane contract through its protocol; other assigned skills,

@@ -1,10 +1,18 @@
 # Project source repositories
 
 The Create project dialog accepts a name and optional GitHub repository selections.
-It uses the same `RepositoryEditor` as project Configuration. Description remains
-editable in Configuration. Status, goal links, and target dates remain supported by
-the API but are omitted from creation; Status and Goals are omitted from Configuration.
-Old Overview URLs and saved Overview preferences redirect to Configuration.
+It uses the same `RepositoryEditor` as the project **Source repos** tab (next to Budget).
+Description and other settings remain editable in Configuration. Status, goal links, and
+target dates remain supported by the API but are omitted from creation; Status and Goals
+are omitted from Configuration. Old Overview URLs and saved Overview preferences redirect
+to Configuration.
+
+The **Source repos** tab (`/projects/:id/repos`) supports GitHub picker selection and
+**Add by URL**: any HTTP(S) or SSH git remote (including host aliases such as
+`git@digitiamo.github.com:org/repo.git`). SSH remotes require a company secret holding a
+private key; HTTPS remotes may optionally select a token secret. Credentials are stored as
+company secrets, bound to the project workspace at `gitAuth.secretId`, and used at managed
+checkout time.
 
 ## API and persistence
 

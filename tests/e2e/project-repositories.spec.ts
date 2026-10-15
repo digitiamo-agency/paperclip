@@ -29,13 +29,10 @@ test("project creation and repository configuration persist on a short mobile vi
   const legacy = await page.request.post(`/api/projects/${project.id}/workspaces`, { data: { name: "Legacy", repoUrl: "https://git.example/org/legacy" } });
   expect(legacy.ok()).toBe(true);
   await page.setViewportSize({ width: 390, height: 420 });
-  await page.goto(`/${company.issuePrefix}/projects/${project.id}/overview`);
-  // The legacy overview route redirects first to configuration and then to
-  // the canonical project key. Editing between those redirects loses the
-  // draft when the project query switches keys and remounts the form.
   expect(project.urlKey).toBeTruthy();
-  await expect(page).toHaveURL((url) => url.pathname === `/${company.issuePrefix}/projects/${project.urlKey}/configuration`);
-  await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
+  await page.goto(`/${company.issuePrefix}/projects/${project.urlKey}/repos`);
+  await expect(page).toHaveURL((url) => url.pathname === `/${company.issuePrefix}/projects/${project.urlKey}/repos`);
+  await expect(page.getByRole("tab", { name: "Source repos", exact: true })).toBeVisible();
   const section = page.getByRole("region", { name: "Repositories", exact: true });
   await expect(section.getByText("org/repo-40", { exact: true })).toBeVisible();
   await section.getByRole("button", { name: "Remove org/repo-40", exact: true }).click();
@@ -46,14 +43,15 @@ test("project creation and repository configuration persist on a short mobile vi
   await expect(section.getByText("org/repo-40", { exact: true })).toHaveCount(0);
   await expect(section.getByText("org/repo-39", { exact: true })).toBeVisible();
   await section.getByRole("button", { name: "Edit", exact: true }).click();
-  await section.getByRole("textbox", { name: "Existing repo URL" }).fill("https://git.example/org/updated");
-  await section.getByRole("button", { name: "Save URL" }).click();
+  const editDialog = page.getByRole("dialog");
+  await expect(editDialog.getByRole("textbox", { name: "Repository URL" })).toBeVisible();
+  await editDialog.getByRole("textbox", { name: "Repository URL" }).fill("https://git.example/org/updated");
+  await editDialog.getByRole("button", { name: "Save repository", exact: true }).click();
+  await expect(editDialog).toHaveCount(0);
   await page.reload();
   await expect(section.getByText("https://git.example/org/updated", { exact: true })).toBeVisible();
   await expect(page.getByText("Set the KEY to the env var name", { exact: false })).toHaveCount(0);
   await expect(page.getByText("Applied to all runs for tasks in this project.", { exact: false })).toHaveCount(0);
-  const created = page.getByText("Created", { exact: true });
-  await created.scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const persisted = await (await page.request.get(`/api/projects/${project.id}`)).json();
   expect(persisted.workspaces.filter((workspace: { metadata?: { githubRepositoryId?: string } }) => workspace.metadata?.githubRepositoryId)).toHaveLength(39);

@@ -7,7 +7,6 @@ import { environmentDisplayLabel, filterManagedSandboxSelectableEnvironments } f
 import { Link } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project, SharedWorkspaceConcurrency } from "@paperclipai/shared";
-import { ProjectRepositories } from "./ProjectRepositories";
 import { cn, formatDate } from "../lib/utils";
 import { environmentsApi } from "../api/environments";
 import { instanceSettingsApi } from "../api/instanceSettings";
@@ -31,12 +30,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
 
 interface ProjectPropertiesProps {
   project: Project;
+  /** Optional slot kept for Storybook/prototypes; Source repos live on the project Repos tab. */
   repositories?: ReactNode;
   onUpdate?: (data: Record<string, unknown>) => void;
   onFieldUpdate?: (field: ProjectConfigFieldKey, data: Record<string, unknown>) => void;
   getFieldSaveState?: (field: ProjectConfigFieldKey) => ProjectFieldSaveState;
   onArchive?: (archived: boolean) => void;
   archivePending?: boolean;
+  onDelete?: () => void;
+  deletePending?: boolean;
 }
 
 export type ProjectFieldSaveState = "idle" | "saving" | "saved" | "error";
@@ -212,7 +214,76 @@ function ArchiveDangerZone({
   );
 }
 
-export function ProjectProperties({ project, repositories, onUpdate, onFieldUpdate, getFieldSaveState, onArchive, archivePending }: ProjectPropertiesProps) {
+function DeleteDangerZone({
+  project,
+  onDelete,
+  deletePending,
+}: {
+  project: Project;
+  onDelete: () => void;
+  deletePending?: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
+      <p className="text-sm text-muted-foreground">
+        Permanently delete this project. Tasks stay in the organization but are unlinked.
+        This cannot be undone.
+      </p>
+      {deletePending ? (
+        <Button size="sm" variant="destructive" disabled>
+          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+          Deleting...
+        </Button>
+      ) : confirming ? (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-destructive font-medium">
+            Delete &ldquo;{project.name}&rdquo;?
+          </span>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              setConfirming(false);
+              onDelete();
+            }}
+          >
+            Confirm
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirming(false)}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => setConfirming(true)}
+        >
+          <Trash2 className="h-3 w-3 mr-1" />
+          Delete project
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function ProjectProperties({
+  project,
+  repositories,
+  onUpdate,
+  onFieldUpdate,
+  getFieldSaveState,
+  onArchive,
+  archivePending,
+  onDelete,
+  deletePending,
+}: ProjectPropertiesProps) {
   const { visible: workspaceIsolationControlsVisible } = useWorkspaceIsolationControls();
   const { selectedCompanyId } = useCompany();
   const { data: privacySession } = useQuery({ queryKey: queryKeys.auth.session, queryFn: () => authApi.getSession() });
@@ -508,7 +579,7 @@ export function ProjectProperties({ project, repositories, onUpdate, onFieldUpda
             {project.visibility === "private" ? <ProjectAccessMembers project={project} canManage={canManagePrivacy} /> : null}
           </div>
         </PropertyRow>
-        {repositories ?? <ProjectRepositories key={project.id} project={project} />}
+        {repositories}
         <PropertyRow
           label={<FieldLabel label="Env" state={fieldState("env")} />}
           alignStart
@@ -1052,18 +1123,27 @@ export function ProjectProperties({ project, repositories, onUpdate, onFieldUpda
 
       </div>
 
-      {onArchive && (
+      {(onArchive || onDelete) && (
         <>
           <Separator className="my-4" />
           <div className="space-y-4 py-4">
             <div className="text-xs font-medium text-destructive uppercase tracking-wide">
               Danger Zone
             </div>
-            <ArchiveDangerZone
-              project={project}
-              onArchive={onArchive}
-              archivePending={archivePending}
-            />
+            {onArchive ? (
+              <ArchiveDangerZone
+                project={project}
+                onArchive={onArchive}
+                archivePending={archivePending}
+              />
+            ) : null}
+            {onDelete ? (
+              <DeleteDangerZone
+                project={project}
+                onDelete={onDelete}
+                deletePending={deletePending}
+              />
+            ) : null}
           </div>
         </>
       )}

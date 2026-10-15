@@ -11,7 +11,7 @@ export const FIRST_TASK_CASES = [
   ],
   [
     "plain-message-first-response",
-    "Opening card replaced by a message",
+    "Plain message after greeting",
     "message",
     1,
   ],

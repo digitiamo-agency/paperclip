@@ -48,6 +48,15 @@ export function managedProviderRouting(
     const id = model.startsWith(`${provider}/`)
       ? model.slice(provider.length + 1)
       : model;
+    const models: Record<string, { name: string; limit?: { context: number; output: number } }> = {};
+    for (const entry of route.models ?? []) {
+      models[entry.id] = {
+        name: entry.label?.trim() || entry.id,
+        ...(entry.limit ? { limit: entry.limit } : {}),
+      };
+    }
+    if (id && !models[id]) models[id] = { name: id };
+    else if (id && models[id] && !models[id].name) models[id].name = id;
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
       provider: {
         [provider]: {
@@ -55,7 +64,7 @@ export function managedProviderRouting(
             ? { npm: "@ai-sdk/openai-compatible", name: "Paperclip connection" }
             : {}),
           options: { baseURL: baseUrl, apiKey: credential },
-          models: id ? { [id]: { name: id } } : {},
+          models,
         },
       },
       enabled_providers: [provider],

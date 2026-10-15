@@ -3,6 +3,7 @@ import { PROJECT_STATUSES, PROJECT_ICON_NAMES } from "../constants.js";
 import { envConfigSchema } from "./secret.js";
 import { trustAuthorizationPolicySchema } from "./trust-policy.js";
 import { objectWithoutDefaults } from "./partial.js";
+import { gitRemoteUrlSchema, projectWorkspaceGitAuthSchema } from "./git-remote-url.js";
 
 export const projectDiscoverySchema = z.object({
   limit: z.number().int().min(1).max(50).default(50),
@@ -48,11 +49,25 @@ export const projectWorkspaceRuntimeConfigSchema = z.object({
 const projectWorkspaceSourceTypeSchema = z.enum(["local_path", "git_repo", "remote_managed", "non_git_path"]);
 const projectWorkspaceVisibilitySchema = z.enum(["default", "advanced"]);
 
+const projectWorkspaceMetadataSchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((value, ctx) => {
+    if (!("gitAuth" in value) || value.gitAuth == null) return;
+    const parsed = projectWorkspaceGitAuthSchema.safeParse(value.gitAuth);
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "metadata.gitAuth must be { kind: ssh_private_key|https_token, secretId }",
+        path: ["gitAuth"],
+      });
+    }
+  });
+
 const projectWorkspaceFields = {
   name: z.string().min(1).optional(),
   sourceType: projectWorkspaceSourceTypeSchema.optional(),
   cwd: z.string().min(1).optional().nullable(),
-  repoUrl: z.string().url().optional().nullable(),
+  repoUrl: gitRemoteUrlSchema.optional().nullable(),
   repoRef: z.string().optional().nullable(),
   defaultRef: z.string().optional().nullable(),
   visibility: projectWorkspaceVisibilitySchema.optional(),
@@ -61,7 +76,7 @@ const projectWorkspaceFields = {
   remoteProvider: z.string().optional().nullable(),
   remoteWorkspaceRef: z.string().optional().nullable(),
   sharedWorkspaceKey: z.string().optional().nullable(),
-  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
+  metadata: projectWorkspaceMetadataSchema.optional().nullable(),
   runtimeConfig: projectWorkspaceRuntimeConfigSchema.optional().nullable(),
 };
 
@@ -127,7 +142,7 @@ export const createProjectSchema = z.object({
   ...projectFields,
   workspace: createProjectWorkspaceSchema.optional(),
   repositoryIds: z.array(z.string().regex(/^\d+$/)).optional(),
-  repositoryUrls: z.array(z.string().url().max(2000)).max(100).optional(),
+  repositoryUrls: z.array(gitRemoteUrlSchema).max(100).optional(),
 });
 
 export type CreateProject = z.infer<typeof createProjectSchema>;

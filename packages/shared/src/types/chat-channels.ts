@@ -8,6 +8,7 @@ export const CHAT_PROVIDERS = [
   "speko",
   "agentmail",
   "imessage-photon",
+  "whatsapp-web",
 ] as const;
 export type ChatProvider = (typeof CHAT_PROVIDERS)[number];
 
@@ -265,6 +266,8 @@ export interface ChatEndpoint {
   botLabel?: string | null;
   botAvatarUrl?: string | null;
   photonAllocation?: "dedicated" | "shared";
+  /** Present only for WhatsApp Web endpoints. Default mode is `none`. */
+  whatsappWebAutoReply?: WhatsAppWebAutoReplyPolicy;
   allowDirectMessages: boolean;
   requireAtMention: boolean;
   allowGroupChats: boolean;
@@ -510,6 +513,25 @@ export interface CreateChatEndpointInput {
   slackApp?: SlackAppConfiguration;
 }
 
+export const WHATSAPP_WEB_AUTO_REPLY_MODES = [
+  "none",
+  "all",
+  "allowlist",
+  "blocklist",
+  "new_only",
+] as const;
+export type WhatsAppWebAutoReplyMode =
+  (typeof WHATSAPP_WEB_AUTO_REPLY_MODES)[number];
+
+/** Operator-controlled automatic reply gate for WhatsApp Web DMs. */
+export interface WhatsAppWebAutoReplyPolicy {
+  mode: WhatsAppWebAutoReplyMode;
+  /** Contact keys for allowlist / blocklist (chat id or phone digits). */
+  contacts: string[];
+  /** Contacts already seen; used by `new_only`. Maintained by the server. */
+  knownContacts: string[];
+}
+
 export interface UpdateChatEndpointInput {
   slackSetupMethod?: "automatic" | "manual" | "existing";
   slackApp?: SlackAppConfiguration;
@@ -518,6 +540,13 @@ export interface UpdateChatEndpointInput {
   requireAtMention?: boolean;
   allowGroupChats?: boolean;
   allowUnlinkedPeople?: boolean;
+  /** WhatsApp Web only: who may receive automatic agent replies. */
+  whatsappWebAutoReply?: {
+    mode: WhatsAppWebAutoReplyMode;
+    contacts?: string[];
+    /** When true, clears the server-maintained known-contact set. */
+    clearKnownContacts?: boolean;
+  };
 }
 
 export interface ConfigureChatEndpointInput {

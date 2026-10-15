@@ -4244,7 +4244,8 @@ registry.registerPath({
   method: "get",
   path: "/api/issues/{id}/heartbeat-context",
   tags: ["issues"],
-  summary: "Get issue heartbeat context",
+  summary:
+    "Get issue heartbeat context (includes project and mentioned-project source repos/workspaces)",
   request: { params: z.object({ id: z.string() }) },
   responses: { 200: r.ok(), 401: r.unauthorized },
 });
@@ -10897,6 +10898,15 @@ registerCurrentRoute({
   path: "/api/companies/{companyId}/ai-connections/{connectionId}/active-runs",
   tags: ["ai-connections"],
   summary: "List active runs attributed to an AI connection",
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/ai-connections/{connectionId}/models",
+  tags: ["ai-connections"],
+  summary: "List models from a saved gateway or local AI connection's /models catalog",
+  query: z.object({ grantId: z.string().uuid().optional() }),
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
 });
 

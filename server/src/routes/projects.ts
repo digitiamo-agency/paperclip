@@ -52,6 +52,11 @@ import { appendWithCap } from "../adapters/utils.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
 import { environmentService } from "../services/environments.js";
 import { secretService } from "../services/secrets.js";
+import {
+  assertProjectWorkspaceGitAuthMatchesUrl,
+  collectProjectWorkspaceGitAuthSecretRefs,
+  readProjectWorkspaceGitAuth,
+} from "../services/project-git-auth.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
@@ -605,10 +610,27 @@ export function projectRoutes(db: Db) {
       collectProjectWorkspaceCommandPaths(req.body),
     );
     await assertNoManagedSandboxWorkspacePath(req.body);
+    const gitAuth = readProjectWorkspaceGitAuth(req.body.metadata ?? null);
+    assertProjectWorkspaceGitAuthMatchesUrl(req.body.repoUrl ?? null, gitAuth);
+    if (gitAuth) {
+      const secret = await secretsSvc.getById(gitAuth.secretId);
+      if (!secret || secret.companyId !== existing.companyId || secret.status !== "active") {
+        throw unprocessable("Selected git credential secret was not found in this company");
+      }
+    }
     const workspace = await svc.createWorkspace(id, req.body);
     if (!workspace) {
       res.status(422).json({ error: "Invalid project workspace payload" });
       return;
+    }
+    try {
+      await secretsSvc.replaceSecretRefsForInstanceTarget(
+        { targetType: "project_workspace", targetId: workspace.id },
+        collectProjectWorkspaceGitAuthSecretRefs(workspace.metadata),
+      );
+    } catch (error) {
+      await svc.removeWorkspace(id, workspace.id).catch(() => null);
+      throw error;
     }
 
     const actor = getActorInfo(req);
@@ -625,6 +647,8 @@ export function projectRoutes(db: Db) {
         name: workspace.name,
         cwd: workspace.cwd,
         isPrimary: workspace.isPrimary,
+        repoUrl: workspace.repoUrl,
+        gitAuthKind: gitAuth?.kind ?? null,
       },
     });
 
@@ -645,15 +669,31 @@ export function projectRoutes(db: Db) {
         collectProjectWorkspaceCommandPaths(req.body),
       );
       await assertNoManagedSandboxWorkspacePath(req.body);
-      const workspaceExists = (await svc.listWorkspaces(id)).some((workspace) => workspace.id === workspaceId);
-      if (!workspaceExists) {
+      const currentWorkspace = (await svc.listWorkspaces(id)).find((workspace) => workspace.id === workspaceId);
+      if (!currentWorkspace) {
         res.status(404).json({ error: "Project workspace not found" });
         return;
+      }
+      const nextRepoUrl = req.body.repoUrl !== undefined ? req.body.repoUrl : currentWorkspace.repoUrl;
+      const nextMetadata = req.body.metadata !== undefined ? req.body.metadata : currentWorkspace.metadata;
+      const gitAuth = readProjectWorkspaceGitAuth(nextMetadata ?? null);
+      assertProjectWorkspaceGitAuthMatchesUrl(nextRepoUrl ?? null, gitAuth);
+      if (gitAuth) {
+        const secret = await secretsSvc.getById(gitAuth.secretId);
+        if (!secret || secret.companyId !== existing.companyId || secret.status !== "active") {
+          throw unprocessable("Selected git credential secret was not found in this company");
+        }
       }
       const workspace = await svc.updateWorkspace(id, workspaceId, req.body);
       if (!workspace) {
         res.status(422).json({ error: "Invalid project workspace payload" });
         return;
+      }
+      if (req.body.metadata !== undefined || req.body.repoUrl !== undefined) {
+        await secretsSvc.replaceSecretRefsForInstanceTarget(
+          { targetType: "project_workspace", targetId: workspace.id },
+          collectProjectWorkspaceGitAuthSecretRefs(workspace.metadata),
+        );
       }
 
       const actor = getActorInfo(req);
@@ -967,6 +1007,10 @@ export function projectRoutes(db: Db) {
       res.status(404).json({ error: "Project workspace not found" });
       return;
     }
+    await secretsSvc.replaceSecretRefsForInstanceTarget(
+      { targetType: "project_workspace", targetId: workspace.id },
+      [],
+    ).catch(() => undefined);
 
     const actor = getActorInfo(req);
     await logActivity(db, {

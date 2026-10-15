@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@paperclipai/shared";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { EntityRow } from "../components/EntityRow";
 import { ProjectTile } from "../components/ProjectTile";
@@ -22,7 +23,23 @@ import {
 } from "../hooks/useResourceMemberships";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ArrowUpDown, Check, Hexagon, Plus } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ArrowUpDown, Check, Hexagon, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { Lock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
@@ -81,8 +98,11 @@ export function Projects() {
   const { selectedCompanyId } = useCompany();
   const { openNewProject } = useDialogActions();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const { pushToast } = useToastActions();
+  const queryClient = useQueryClient();
   const [sortField, setSortField] = useState<ProjectSortField>("name");
   const [sortDir, setSortDir] = useState<ProjectSortDir>("asc");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Projects" }]);
@@ -95,9 +115,36 @@ export function Projects() {
   });
   const membershipsQuery = useResourceMemberships(selectedCompanyId);
   const membershipMutation = useResourceMembershipMutation(selectedCompanyId);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => projectsApi.remove(id, selectedCompanyId ?? undefined),
+    onSuccess: (deleted) => {
+      if (selectedCompanyId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects.all(selectedCompanyId) });
+      }
+      setConfirmDeleteId(null);
+      pushToast({
+        tone: "success",
+        title: "Project deleted",
+        body: deleted?.name
+          ? `"${deleted.name}" was permanently removed.`
+          : "The project was permanently removed.",
+      });
+    },
+    onError: (err: unknown) => {
+      pushToast({
+        tone: "error",
+        title: "Could not delete project",
+        body: err instanceof Error ? err.message : "Deletion failed.",
+      });
+    },
+  });
   const projects = useMemo(
     () => allProjects ?? [],
     [allProjects],
+  );
+  const projectPendingDelete = useMemo(
+    () => projects.find((project) => project.id === confirmDeleteId) ?? null,
+    [confirmDeleteId, projects],
   );
   const sortedProjects = useMemo(
     () => sortProjects(projects, sortField, sortDir),
@@ -270,6 +317,35 @@ export function Projects() {
                                 starred: next,
                               })}
                             />
+                            <div
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                            >
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    className="text-muted-foreground opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                                    aria-label={`More actions for ${project.name}`}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    variant="destructive"
+                                    onSelect={() => setConfirmDeleteId(project.id)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete project
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </div>
                         }
                       />
@@ -281,6 +357,47 @@ export function Projects() {
           })}
         </div>
       )}
+
+      <AlertDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setConfirmDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete{projectPendingDelete ? ` “${projectPendingDelete.name}”` : " this project"}{" "}
+              permanently? Tasks stay in the organization but are unlinked from this project.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteMutation.isError && (
+            <p className="text-sm text-destructive">
+              {deleteMutation.error instanceof Error
+                ? deleteMutation.error.message
+                : "Deletion failed."}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!confirmDeleteId || deleteMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!confirmDeleteId) return;
+                deleteMutation.mutate(confirmDeleteId);
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete project"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

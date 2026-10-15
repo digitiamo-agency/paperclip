@@ -45,6 +45,7 @@ import { logger } from "../middleware/logger.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import { probeAiConnectionUsage } from "./ai-connection-usage.js";
+import { listOpenAiCompatibleModels } from "./openai-compatible-models.js";
 
 /** Same human audience displayed by the existing Connections identity controls. */
 function canUseCredential(
@@ -221,15 +222,19 @@ export function aiConnectionService(db: Db) {
         });
     });
   }
-  /** On-demand account observation for either runner; never probes ambient CLI auth. */
-  async function probeUsage(companyId: string, userId: string, connectionId: string, grantId?: string): Promise<AiConnectionUsage> {
+  /** Resolve a connection row the signed-in member may use for board-side probes. */
+  async function visibleConnectionRow(companyId: string, userId: string, connectionId: string, grantId?: string) {
     if (!(await membership(companyId, userId))) throw forbidden("An active company member is required");
     const candidates = (await rows(companyId)).filter((row) => row.connection.id === connectionId && (!grantId || row.grant.id === grantId));
     const audience = await db.select().from(connectionGrantMembers).where(eq(connectionGrantMembers.companyId, companyId));
     const visible = candidates.filter(({ grant }) => canUseCredential(grant, userId, audience.filter((member) => member.grantId === grant.id)));
     if (!visible.length) throw notFound("AI connection not found");
     if (visible.length > 1) throw unprocessable("Choose a credential grant for this usage check");
-    const row = visible[0]!;
+    return visible[0]!;
+  }
+  /** On-demand account observation for either runner; never probes ambient CLI auth. */
+  async function probeUsage(companyId: string, userId: string, connectionId: string, grantId?: string): Promise<AiConnectionUsage> {
+    const row = await visibleConnectionRow(companyId, userId, connectionId, grantId);
     const metadata = aiConnectionMetadataSchema.safeParse(row.connection.config.ai);
     if (!metadata.success) throw notFound("AI connection not found");
     const identity = { connectionId: row.connection.id, grantId: row.grant.id, ...metadata.data };
@@ -243,6 +248,25 @@ export function aiConnectionService(db: Db) {
     }
     const value = await credential(row);
     return { ...identity, ...await probeAiConnectionUsage(metadata.data, value) };
+  }
+  /**
+   * Board-side model catalog for a saved gateway/local connection.
+   * Uses the vaulted credential against the connection's OpenAI-compatible `/models`.
+   */
+  async function listModels(companyId: string, userId: string, connectionId: string, grantId?: string) {
+    const row = await visibleConnectionRow(companyId, userId, connectionId, grantId);
+    const metadata = aiConnectionMetadataSchema.safeParse(row.connection.config.ai);
+    if (!metadata.success) throw notFound("AI connection not found");
+    const routing = metadata.data.routing;
+    if (!routing || (routing.kind !== "gateway" && routing.kind !== "local") || !routing.baseUrl) {
+      throw unprocessable("Only gateway and local AI connections expose a live model catalog");
+    }
+    if (row.grant.status !== "active" || !row.connection.enabled || row.connection.status !== "active" ||
+      row.connection.healthStatus !== "ok") {
+      throw unprocessable("Reconnect or enable this AI connection before listing models");
+    }
+    const apiKey = routing.auth === "none" ? undefined : await credential(row);
+    return listOpenAiCompatibleModels(routing.baseUrl, apiKey);
   }
   async function select(input: {
     companyId: string;
@@ -1128,5 +1152,5 @@ export function aiConnectionService(db: Db) {
       return [{ ...row, summary }];
     });
   }
-  return { list, selectDecision, selectFastResponse, quotaAccounts, subscriptionAccounts: (companyId: string, userId: string) => quotaAccounts(companyId, userId, true), refreshQuotaCredential, select, credential, runtimeCredential, probeUsage, save, setDefault, membership, markAuthenticationFailed };
+  return { list, selectDecision, selectFastResponse, quotaAccounts, subscriptionAccounts: (companyId: string, userId: string) => quotaAccounts(companyId, userId, true), refreshQuotaCredential, select, credential, runtimeCredential, probeUsage, listModels, save, setDefault, membership, markAuthenticationFailed };
 }

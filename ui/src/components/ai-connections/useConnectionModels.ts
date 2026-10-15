@@ -21,33 +21,48 @@ export function useConnectionModels(
   );
   const routing = connection?.routing;
   const openRouter = routing?.kind === "openrouter" || (!routing && binding?.provider === "openrouter");
-  const discover = openRouter && !routing?.models.length;
-  // Reuse the existing public catalog and its query cache. It returns OpenCode IDs;
-  // strip only that transport prefix for other harnesses (openrouter/auto is
-  // itself a valid upstream model ID).
+  const endpointRouting = routing?.kind === "gateway" || routing?.kind === "local";
+  // OpenRouter reuses the public catalog when the connection has no allowlist.
+  // Gateway/local connections always load live from the connection's
+  // OpenAI-compatible `/models` using vaulted credentials; the stored allowlist
+  // is only a fallback while loading or if the live catalog fails.
+  const discoverOpenRouter = openRouter && !routing?.models.length;
+  const discoverEndpoint = Boolean(connection && endpointRouting);
   const catalog = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId ?? "none", "opencode_local", null, "openrouter"),
     queryFn: () => agentsApi.adapterModels(companyId!, "opencode_local", { provider: "openrouter" }),
-    enabled: Boolean(companyId && discover),
+    enabled: Boolean(companyId && discoverOpenRouter),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const endpointCatalog = useQuery({
+    queryKey: ["ai-connections", companyId, connection?.id, connection?.grantId, "models"],
+    queryFn: () => aiConnectionsApi.listModels(companyId!, connection!.id, connection!.grantId),
+    enabled: Boolean(companyId && discoverEndpoint),
     staleTime: 60_000,
     retry: false,
   });
   const effectiveRouting: AiProviderRouting | undefined = routing ?? (openRouter
     ? { kind: "openrouter", protocol: "chat", auth: "bearer", models: [] }
     : undefined);
-  const modelOptions = discover
+  const storedModels = routing?.models ?? [];
+  const modelOptions = discoverOpenRouter
     ? (catalog.data ?? []).map((m) => ({ ...m, id: harness === "opencode_local" ? m.id : m.id.replace(/^openrouter\//, "") }))
-    : routing?.models ?? [];
+    : discoverEndpoint
+      ? (endpointCatalog.data?.models ?? storedModels)
+      : storedModels;
+  const discovering = discoverOpenRouter || discoverEndpoint;
+  const activeCatalog = discoverOpenRouter ? catalog : endpointCatalog;
   return effectiveRouting
     ? {
         models: modelOptions.map((m) => ({
           id: aiRoutingModel(effectiveRouting, harness, m.id),
           label: m.label ?? m.id,
         })),
-        isLoading: discover && catalog.isLoading,
-        error: discover ? catalog.error : null,
-        refreshing: discover && catalog.isFetching,
-        refreshModels: discover ? async () => { await catalog.refetch(); } : undefined,
+        isLoading: discovering && activeCatalog.isLoading && modelOptions.length === 0,
+        error: discovering && modelOptions.length === 0 ? activeCatalog.error : null,
+        refreshing: discovering && activeCatalog.isFetching,
+        refreshModels: discovering ? async () => { await activeCatalog.refetch(); } : undefined,
         resolveModel: (model: string) =>
           aiRoutingModel(effectiveRouting, harness, model),
       }

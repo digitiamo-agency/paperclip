@@ -404,6 +404,17 @@ export {
 } from "./project.js";
 
 export {
+  SCP_LIKE_GIT_REMOTE_PATTERN,
+  deriveGitRemoteDisplayName,
+  gitRemoteUrlSchema,
+  parseGitRemoteUrl,
+  projectWorkspaceGitAuthSchema,
+  type GitRemoteTransport,
+  type ParsedGitRemoteUrl,
+  type ProjectWorkspaceGitAuth,
+} from "./git-remote-url.js";
+
+export {
   createDocumentAnnotationCommentSchema,
   createDocumentAnnotationThreadSchema,
   documentAnnotationAnchorConfidenceSchema,

@@ -273,7 +273,6 @@ import {
 } from "../services/onboarding-greeting.js";
 import {
   buildOnboardingFirstTaskBrief,
-  buildOnboardingFirstTaskOpeningQuestion,
 } from "../services/onboarding-first-task-assets.js";
 import {
   ISSUE_BLOCKERS_RESOLVED_WAKE_REASON,
@@ -8021,6 +8020,43 @@ export function issueRoutes(
     };
   }
 
+  /** Lean source-repo projection for heartbeat context (UI "Source repos"). */
+  function compactHeartbeatProjectWorkspace(
+    workspace: ProjectWorkspace | null | undefined,
+  ) {
+    if (!workspace) return null;
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      cwd: workspace.cwd,
+      repoUrl: workspace.repoUrl,
+      repoRef: workspace.repoRef,
+      defaultRef: workspace.defaultRef,
+      isPrimary: workspace.isPrimary,
+    };
+  }
+
+  function compactHeartbeatProject(
+    project: Awaited<ReturnType<typeof resolveIssueProjectAndGoal>>["project"],
+  ) {
+    if (!project) return null;
+    const workspaces = (project.workspaces ?? [])
+      .map((workspace) => compactHeartbeatProjectWorkspace(workspace))
+      .filter((workspace): workspace is NonNullable<typeof workspace> => Boolean(workspace));
+    return {
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      targetDate: project.targetDate,
+      urlKey: project.urlKey,
+      workspaces,
+      primaryWorkspace:
+        compactHeartbeatProjectWorkspace(project.primaryWorkspace) ??
+        workspaces.find((workspace) => workspace.isPrimary) ??
+        null,
+    };
+  }
+
   function compactIssueProject(
     project: Awaited<ReturnType<typeof resolveIssueProjectAndGoal>>["project"],
   ) {
@@ -8928,6 +8964,7 @@ export function issueRoutes(
     const [
       { project, goal },
       ancestors,
+      mentionedProjectIds,
       commentCursor,
       wakeComment,
       relations,
@@ -8941,6 +8978,9 @@ export function issueRoutes(
     ] = await Promise.all([
       resolveIssueProjectAndGoal(issue),
       svc.getAncestors(issue.id),
+      // Include comment bodies so board project:// mentions (common on onboarding
+      // / cross-project tasks) surface Source repos without a separate API hop.
+      svc.findMentionedProjectIds(issue.id, { includeCommentBodies: true }),
       svc.getCommentCursor(issue.id),
       wakeCommentId ? svc.getComment(wakeCommentId) : null,
       svc.getRelationSummaries(issue.id),
@@ -8959,7 +8999,24 @@ export function issueRoutes(
       currentExecutionWorkspacePromise,
       recoveryActionsSvc.getActiveForIssue(issue.companyId, issue.id),
     ]);
-    const visibleProject = await visibleIssueProject(req, project);
+    const mentionedIdsForContext = mentionedProjectIds
+      .filter((projectId) => projectId !== issue.projectId)
+      .slice(0, 10);
+    const mentionedProjects =
+      mentionedIdsForContext.length > 0
+        ? await projectsSvc.listByIds(issue.companyId, mentionedIdsForContext)
+        : [];
+    const [visibleProject, mentionedProjectVisibility] = await Promise.all([
+      visibleIssueProject(req, project),
+      Promise.all(
+        mentionedProjects.map((mentionedProject) =>
+          canActorReadProject(req, mentionedProject),
+        ),
+      ),
+    ]);
+    const visibleMentionedProjects = mentionedProjects.filter(
+      (_, index) => mentionedProjectVisibility[index],
+    );
     const recoveryActionsByRelationIssue = await relationRecoveryActionMap(
       recoveryActionsSvc,
       issue.companyId,
@@ -9036,14 +9093,10 @@ export function issueRoutes(
         status: ancestor.status,
         priority: ancestor.priority,
       })),
-      project: visibleProject
-        ? {
-            id: visibleProject.id,
-            name: visibleProject.name,
-            status: visibleProject.status,
-            targetDate: visibleProject.targetDate,
-          }
-        : null,
+      project: compactHeartbeatProject(visibleProject),
+      mentionedProjects: visibleMentionedProjects.map((mentionedProject) =>
+        compactHeartbeatProject(mentionedProject),
+      ),
       goal: goal
         ? {
             id: goal.id,
@@ -9275,7 +9328,7 @@ export function issueRoutes(
     ] = await Promise.all([
       timing.time("project_goal", () => resolveIssueProjectAndGoal(issue)),
       timing.time("ancestors", () => svc.getAncestors(issue.id)),
-      timing.time("mentions", () => svc.findMentionedProjectIds(issue.id, { includeCommentBodies: false })),
+      timing.time("mentions", () => svc.findMentionedProjectIds(issue.id, { includeCommentBodies: true })),
       timing.time("documents", () => documentsSvc.getIssueDocumentPayload(issue)),
       timing.time("relations", () => svc.getRelationSummaries(issue.id)),
       timing.time("blockers", () => svc
@@ -12577,6 +12630,7 @@ export function issueRoutes(
           const greetingBody = await renderOnboardingGreeting({
             agentName: assigneeAgent?.name ?? null,
             organizationName: company?.name ?? null,
+            dialogueLanguage: company?.dialogueLanguage ?? null,
           });
           await svc.addComment(
             issue.id,
@@ -12591,30 +12645,6 @@ export function issueRoutes(
           logger.warn(
             { err, issueId: issue.id, companyId },
             "failed to seed onboarding first-task greeting",
-          );
-        }
-
-        // Seed the opening question card right after the greeting so the first
-        // task is not open-ended: "Interview me and propose a plan and an agent
-        // team" or "I have a task in mind" (free text). Posted as the assignee,
-        // deterministic (no LLM), and best-effort like the greeting. Answering
-        // the card wakes the assignee through the normal question-response path;
-        // typing a message instead supersedes the card and wakes on the comment.
-        try {
-          await issueThreadInteractionService(db).create(
-            issue,
-            {
-              kind: "ask_user_questions",
-              idempotencyKey: `onboarding-first-task:${issue.id}:opening-question`,
-              continuationPolicy: "wake_assignee",
-              payload: await buildOnboardingFirstTaskOpeningQuestion(),
-            },
-            { agentId: issue.assigneeAgentId },
-          );
-        } catch (err) {
-          logger.warn(
-            { err, issueId: issue.id, companyId },
-            "failed to seed onboarding first-task opening question",
           );
         }
       }

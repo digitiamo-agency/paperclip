@@ -55,6 +55,7 @@ const mockIssuesApi = vi.hoisted(() => ({
   listAttachments: vi.fn(),
   listWorkProducts: vi.fn(),
   checkMonitorNow: vi.fn(),
+  retryScheduledRetryNow: vi.fn(),
   listFeedbackVotes: vi.fn(),
   listInteractions: vi.fn(),
   getQueuedComments: vi.fn(),
@@ -1333,6 +1334,7 @@ describe("IssueDetail", () => {
     mockIssuesApi.listAttachments.mockResolvedValue([]);
     mockIssuesApi.listWorkProducts.mockResolvedValue([]);
     mockIssuesApi.checkMonitorNow.mockReset();
+    mockIssuesApi.retryScheduledRetryNow.mockReset();
     mockIssuesApi.listFeedbackVotes.mockResolvedValue([]);
     mockIssuesApi.listInteractions.mockResolvedValue([]);
     mockIssuesApi.getQueuedComments.mockResolvedValue(
@@ -1471,6 +1473,44 @@ describe("IssueDetail", () => {
       expect(container.textContent).toContain("Second monitored task");
       expect(container.textContent).not.toContain("First task monitor failed");
       expect(Array.from(container.querySelectorAll("button")).find((entry) => entry.textContent === "Check now")?.disabled).toBe(false);
+    });
+  });
+
+  it("routes waiting-surface Retry now to scheduled-retry instead of monitor check-now", async () => {
+    mockIssuesApi.get.mockResolvedValue(
+      createIssue({
+        status: "in_progress",
+        scheduledRetry: {
+          status: "scheduled_retry",
+          scheduledRetryAt: new Date(Date.now() + 60_000).toISOString(),
+          scheduledRetryAttempt: 1,
+          scheduledRetryReason: "transient_failure",
+        },
+      }),
+    );
+    mockIssuesApi.retryScheduledRetryNow.mockResolvedValue({
+      outcome: "promoted",
+      message: "Retry promoted",
+      scheduledRetry: null,
+    });
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <IssueDetail />
+        </QueryClientProvider>,
+      ),
+    );
+    let button: HTMLButtonElement | undefined;
+    await waitForAssertion(() => {
+      button = Array.from(container.querySelectorAll("button")).find(
+        (entry) => entry.textContent === "Retry now",
+      );
+      expect(button).toBeTruthy();
+    });
+    await act(async () => button!.click());
+    await waitForAssertion(() => {
+      expect(mockIssuesApi.retryScheduledRetryNow).toHaveBeenCalledWith("PAP-1");
+      expect(mockIssuesApi.checkMonitorNow).not.toHaveBeenCalled();
     });
   });
 

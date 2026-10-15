@@ -321,6 +321,14 @@ alone must not automatically establish a Paperclip identity. Apply the same
 pending/success feedback, optional test, and member-access boundaries using the
 email integration's actual mechanisms.
 
+### WhatsApp Web example
+
+There is no bot token or public callback URL. Center setup on QR pairing for
+Linked devices, then verify with a direct message to the paired account. Show the
+unofficial-client disclaimer and Chromium/self-host prerequisite before the QR.
+Keep personal identity linking separate from the first DM test. Omit group and
+media instructions in V1.
+
 ### Review examples
 
 - **One-token setup:** A short agent → credentials → identity → test flow can be better than six mostly empty screens.

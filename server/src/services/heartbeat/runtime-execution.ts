@@ -71,6 +71,7 @@ import {
   isRunnerGoalActionCompleted,
   settleLiveRunnerGoalBeforeInterrupt,
 } from "../runner-goals.js";
+import { applyHostWorkspaceFilesystemContainment } from "../host-workspace-filesystem-containment.js";
 import type { Db, agents, executionWorkspaces } from "@paperclipai/db";
 import type { AdapterExecutionContext, ServerAdapterModule } from "../../adapters/index.js";
 import type { HeartbeatRuntimeSelectionInput, HeartbeatRuntimeSelectionResult } from "./runtime-selection.js";
@@ -786,6 +787,11 @@ export async function executeHeartbeatRuntime(db: Db, input: HeartbeatRuntimeExe
       if (managedMcpConfig) {
         adapterContext.paperclipManagedMcp = managedMcpConfig;
       }
+      const confinedRuntimeConfig = applyHostWorkspaceFilesystemContainment({
+        adapterType: agent.adapterType,
+        executionTarget,
+        config: parseObject(runtimeConfig),
+      });
       const guardedDispatch =
         await dispatchResolvedInteractionContinuationWithAtomicGate(
           (markDispatchStarted) => {
@@ -796,11 +802,11 @@ export async function executeHeartbeatRuntime(db: Db, input: HeartbeatRuntimeExe
               runId: run.id,
               agent,
               runtime: runtimeForAdapter,
-              config: runtimeConfig,
+              config: confinedRuntimeConfig,
               context: adapterContext,
               executionContinuation: executionContinuation ?? null,
               runtimeCommandSpec:
-                adapter.getRuntimeCommandSpec?.(runtimeConfig) ?? null,
+                adapter.getRuntimeCommandSpec?.(confinedRuntimeConfig) ?? null,
               executionTarget,
               executionTransport: remoteExecution
                 ? {

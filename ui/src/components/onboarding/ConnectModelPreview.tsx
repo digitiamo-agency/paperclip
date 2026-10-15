@@ -37,12 +37,11 @@ import { Stepper } from "./Stepper";
  */
 
 /**
- * The two sources the step offers, matching the shipped step's own list.
+ * The two sources the step opens with, matching the shipped recommended row.
  *
  * Claude Code and Codex are the only adapters the display registry marks
- * `recommended`, and the real step builds its row from exactly that filter — so
- * a third tile here would be a design the wizard could never render. OpenCode
- * was drawn at one point and is deliberately gone.
+ * `recommended`; the real step starts from that filter and reveals the rest
+ * behind "Show more". This preview stays on the short first-paint list.
  */
 const MODEL_SOURCES: ModelSource[] = [
   {
